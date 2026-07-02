@@ -113,6 +113,77 @@ No circular dependencies. Each file has a single responsibility.
 
 ---
 
+## Milestone 3 — Conversation State Machine
+
+**Date**: 2026-07-02  
+**Status**: ✅ Complete  
+**Scope**: `app/conversation/` — Fine-grained FSM controlling voice conversation flow
+
+### What Was Built
+
+| File | Purpose |
+|---|---|
+| `exceptions.py` | `ConversationError` hierarchy: `InvalidTransitionError`, `TerminalStateError`, `InvalidStateError` |
+| `transitions.py` | `ConversationState` enum (10 states) + immutable `TRANSITION_MAP` — single source of truth for all legal edges |
+| `validators.py` | Pure functions `validate_transition()` (raises) and `can_transition()` (bool) |
+| `events.py` | 10 frozen event dataclasses + `TransitionRecord` for audit history |
+| `state_machine.py` | `ConversationStateMachine` — thread-safe FSM with strict validation, ordered history, reset/close convenience |
+| `__init__.py` | Package API re-exports |
+
+### Key Design Decisions
+
+1. **Separate `ConversationState` (10 states) from `SessionState` (6 states)** — The conversation FSM models each pipeline stage individually (TRANSCRIBING, GENERATING_RESPONSE, GENERATING_AUDIO) while the session layer tracks coarse lifecycle. They coexist; the future pipeline coordinator synchronises both.
+
+2. **Immutable `TRANSITION_MAP` (frozenset values)** — The map is a module-level constant. All validation delegates to it. No ad-hoc transition checks scattered across code.
+
+3. **Raising exceptions for invalid transitions** — Unlike `SessionManager.set_state()` which returns `bool`, the FSM raises `InvalidTransitionError` / `TerminalStateError`. The caller must handle explicitly — fail-fast for pipeline correctness.
+
+4. **Pure validator functions** — `validators.py` contains stateless functions. State machine delegates validation there, keeping its own code focused on mutation + history.
+
+5. **Event models only (no bus)** — 10 frozen event dataclasses are defined for the future Event Bus milestone. No dispatch logic yet.
+
+6. **One FSM per session** — Each `ConversationStateMachine` is bound to a `session_id` at construction. Loose coupling — no import of `SessionManager`.
+
+7. **`TransitionRecord` audit log** — Append-only list of immutable records with from_state, to_state, timestamp, reason, session_id. Enables latency analysis and debugging.
+
+### Transition Diagram
+
+```
+IDLE → LISTENING → TRANSCRIBING → THINKING → GENERATING_RESPONSE → GENERATING_AUDIO → SPEAKING → LISTENING (loop)
+                                                                                           ↓
+                                                                                      INTERRUPTED → LISTENING
+Any active state → ERROR → IDLE (recovery) or CLOSED
+Any non-terminal state → CLOSED (terminal)
+```
+
+### Test Suite
+
+| File | Tests | Category |
+|---|---|---|
+| `test_conversation_transitions.py` | 39 | Enum, map completeness, all valid/invalid edges, validators |
+| `test_conversation_events.py` | 25 | All 10 event types + TransitionRecord construction/serialization |
+| `test_conversation_state_machine.py` | 38 | Init, transitions, flows, set_state, can_transition, reset, close, serialization |
+| `test_conversation_edge_cases.py` | 34 | Exception hierarchy, self-transitions, multi-close, ERROR/INTERRUPTED constraints |
+| `test_conversation_thread_safety.py` | 4 | Concurrent transitions, close race, concurrent reads, 100 independent FSMs |
+
+### Quality Metrics (Full Project)
+
+| Metric | Result |
+|---|---|
+| Total tests | 312/312 passed (1.83s) |
+| Line coverage | 100% (330 statements) |
+| Branch coverage | 100% (26 branches) |
+| Ruff | Clean |
+| Mypy (strict) | Clean |
+
+### Integration Notes
+
+- `app/session/` was **not modified** — the conversation package is additive.
+- The future **Pipeline Coordinator** will hold both a `SessionManager` and a `Dict[str, ConversationStateMachine]`, synchronising session state with conversation state.
+- The milestone 2 finding ("no state transition validation matrix" in SessionManager) is now **resolved** by this dedicated FSM layer.
+
+---
+
 <!-- 
 TEMPLATE FOR FUTURE ENTRIES — copy and fill in below this line:
 
