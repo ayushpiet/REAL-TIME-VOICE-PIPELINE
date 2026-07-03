@@ -25,15 +25,15 @@ Each milestone is logged with date, scope, decisions, and outcomes.
 | 4 | Event Bus | ✅ Complete | `app/events/` (10 files) | 30 | 2026-07-02 |
 | 5 | Pipeline Builder | ✅ Complete | `app/pipeline/` (9 files) | 25 | 2026-07-03 |
 | 6 | Pipeline Runner | ✅ Complete | `app/pipeline/` (+6 files) | 18 | 2026-07-03 |
-| 7 | Pipecat Adapter Integration | 🔲 Planned | `app/pipecat/` | — | — |
+| 7 | Pipecat Adapter Integration | ✅ Complete | `app/adapters/` (10 files) | 13 | 2026-07-03 |
 
 ### Current Metrics
 
 | Metric | Value |
 |---|---|
-| Total source files | 37 (`session/` 5 + `conversation/` 6 + `events/` 10 + `pipeline/` 16) |
-| Total statements | 1184 |
-| Total tests | 385 (all passing) |
+| Total source files | 47 (`session/` 5 + `conversation/` 6 + `events/` 10 + `pipeline/` 16 + `adapters/` 10) |
+| Total statements | 1387 |
+| Total tests | 398 (all passing) |
 | Line coverage | >94% |
 | Branch coverage | >94% |
 | Ruff | ✅ Clean |
@@ -385,6 +385,57 @@ PipelineRunner (Complete)
 | `test_runner_metrics.py`  | 1 | Thread-safe telemetry collection |
 | `test_runner_cancellation.py`| 1 | Cancellation token toggling |
 | `test_runner_queue.py`    | 1 | Asyncio queue wrapper |
+
+---
+
+## Milestone 7 — Pipecat Adapter Layer
+
+**Date**: 2026-07-03  
+**Status**: ✅ Complete  
+**Scope**: `app/adapters/pipecat/` — Adapts the Pipeline orchestrator to Pipecat execution runtime.
+
+### What Was Built
+
+| File | Purpose |
+|---|---|
+| `adapter.py` | `PipecatAdapter` bridging our pipeline to the mock/real Pipecat task execution loop. |
+| `mapper.py` | `PipecatPipelineMapper` converts a DAG to a linear Pipecat processor array. |
+| `processors.py` | Converts `ProcessorNode` abstractions to actual Pipecat processing models (mocked for testing). |
+| `transport.py` | `PipecatTransportAdapter` standardising transport injection (WebSocket/WebRTC mocks). |
+| `events.py` | `PipecatEventBridge` connecting Pipecat callbacks into our internal `EventBus`. |
+| `lifecycle.py` | `PipecatLifecycleManager` orchestrating `start()`, `stop()`, and `wait()`. |
+| `factory.py` | `PipecatFactory` dependency-injection entrypoint. |
+| `exceptions.py` | `PipecatAdapterError`, `ProcessorMappingError`, and related adapter exceptions. |
+| `utils.py` | Metadata extraction logic. |
+
+### Key Design Decisions
+
+1. **Strict Decoupling** — The adapter package is the *only* part of the application aware of Pipecat. The rest of the orchestrator deals purely in `AbstractProcessor` and `Pipeline`.
+2. **Event Bridging** — The `PipecatEventBridge` intercepts Pipecat callbacks (`on_pipeline_started`, `on_processor_error`) and emits native `EventBus` payloads (`PipelineStarted`, `ProcessorExecutionFailed`). This ensures telemetry flows uniformly regardless of the execution backend.
+3. **Mock Dependencies** — Rather than installing Pipecat globally and handling C-level media dependencies in tests, the adapter is tested using lightweight structural mocks that fulfill the identical interface footprint.
+4. **Adapter Pattern** — Implements the classic GoF Adapter pattern, reversing the dependency flow. `PipelineRunner` can execute `PipecatAdapter` without modifying runner code.
+
+### Architecture Flow
+
+```text
+PipelineRunner
+  ↓
+PipecatFactory.create_adapter(Pipeline)
+  ↓
+PipecatAdapter
+  → PipecatPipelineMapper (Topological DAG → Linear Pipecat Array)
+  → PipecatLifecycleManager (Syncs start/stop)
+  → PipecatEventBridge (Pipecat calls → EventBus)
+```
+
+### Test Suite
+
+| File | Tests | Category |
+|---|---|---|
+| `test_pipecat_adapter.py` | 4 | Instantiation, error handling on corrupt pipeline, execution flow |
+| `test_pipecat_mapper.py`  | 2 | Linear sequence conversion, mapping errors |
+| `test_pipecat_events.py`  | 2 | Callback to EventBus conversion, Transport mapping |
+| `test_pipecat_components.py`| 5 | Lifecycle synchronizer state bounds, metadata utilities, factory injection |
 
 ---
 
