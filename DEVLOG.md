@@ -24,15 +24,16 @@ Each milestone is logged with date, scope, decisions, and outcomes.
 | 3 | Conversation State Machine | ✅ Complete | `app/conversation/` (6 files) | 146 | 2026-07-02 |
 | 4 | Event Bus | ✅ Complete | `app/events/` (10 files) | 30 | 2026-07-02 |
 | 5 | Pipeline Builder | ✅ Complete | `app/pipeline/` (9 files) | 25 | 2026-07-03 |
-| 6 | Pipeline Runner | 🔲 Planned | `app/runner/` | — | — |
+| 6 | Pipeline Runner | ✅ Complete | `app/pipeline/` (+6 files) | 18 | 2026-07-03 |
+| 7 | Pipecat Adapter Integration | 🔲 Planned | `app/pipecat/` | — | — |
 
 ### Current Metrics
 
 | Metric | Value |
 |---|---|
-| Total source files | 30 (`session/` 5 + `conversation/` 6 + `events/` 10 + `pipeline/` 9) |
-| Total statements | 957 |
-| Total tests | 367 (all passing) |
+| Total source files | 37 (`session/` 5 + `conversation/` 6 + `events/` 10 + `pipeline/` 16) |
+| Total statements | 1184 |
+| Total tests | 385 (all passing) |
 | Line coverage | >94% |
 | Branch coverage | >94% |
 | Ruff | ✅ Clean |
@@ -325,6 +326,65 @@ Pipeline (Immutable Data Object)
 | `test_pipeline_models.py` | 2 | Immutability, cloning, and processor dictionary formatting |
 | `test_pipeline_factory.py` | 2 | Template structure generation (Voice & Text) |
 | `test_pipeline_serializer.py`| 1 | Full JSON round-trip |
+
+---
+
+## Milestone 6 — Pipeline Runner
+
+**Date**: 2026-07-03  
+**Status**: ✅ Complete  
+**Scope**: `app/pipeline/` (Runner) — Execution engine for immutable DAGs
+
+### What Was Built
+
+| File | Purpose |
+|---|---|
+| `runner.py` | `PipelineRunner` entry point wrapping scheduling, lifecycle, and execution |
+| `executor.py` | `AbstractProcessor` interface and `DefaultProcessorExecutor` handles individual processor lifecycle & telemetry |
+| `scheduler.py` | `PipelineScheduler` determining topological execution order using Kahn's algorithm |
+| `lifecycle.py` | `PipelineLifecycleManager` and state machine (`INITIALIZED` → `RUNNING` → `COMPLETED`/`FAILED`) |
+| `execution_state.py` | Explicit `ExecutionState` enumeration |
+| `context.py` | Immutable `ExecutionContext` providing `execution_id`, metrics, and cancellation tokens |
+| `cancellation.py` | Thread-safe `CancellationToken` for cooperative cancellation between stages |
+| `metrics.py` | `MetricsCollector` tracking execution durations and component success rates |
+| `queue.py` | `ExecutionQueue` wrapper around `asyncio.Queue` for inter-process buffer bridging |
+
+### Key Design Decisions
+
+1. **Topological Execution** — Extracted execution ordering into a dedicated `PipelineScheduler` which interprets the DAG created by `PipelineBuilder` into a valid sequential execution flow.
+2. **Context Passing** — The execution engine injects a localized `ExecutionContext` into every processor, granting access to the `CancellationToken` and `MetricsCollector` without global state.
+3. **Cooperative Cancellation** — Processors receive a `CancellationToken` and are expected to yield if cancelled. The runner enforces this by checking cancellation state *between* processor executions and short-circuiting.
+4. **Rich Event Telemetry** — The runner broadcasts `PipelineInitialized`, `PipelineStarted`, `PipelinePaused`, `PipelineCancelled`, `ProcessorExecutionStarted`, etc. onto the existing Event Bus for full observability.
+5. **Decoupled Execution** — The runner depends ONLY on `AbstractProcessor`. Implementations (like STT, LLM) are injected at runtime.
+
+### Architecture Flow
+
+```text
+PipelineRunner (Start)
+  ↓
+PipelineScheduler (Sorts DAG)
+  ↓
+Loop Execution Order:
+  → Executor.run(Processor, Context)
+      ↓
+    before_execute()
+    execute()
+    after_execute()
+  ↓
+PipelineRunner (Complete)
+```
+
+### Test Suite
+
+| File | Tests | Category |
+|---|---|---|
+| `test_pipeline_runner.py` | 4 | Integration (Happy path, Missing implementations, Interruption, Pause/Resume) |
+| `test_runner_scheduler.py`| 2 | Topological sorting algorithms |
+| `test_runner_executor.py` | 3 | Processor execution wrapping and error bubbling |
+| `test_runner_lifecycle.py`| 6 | State machine transition bounds and idempotency |
+| `test_runner_metrics.py`  | 1 | Thread-safe telemetry collection |
+| `test_runner_cancellation.py`| 1 | Cancellation token toggling |
+| `test_runner_queue.py`    | 1 | Asyncio queue wrapper |
 
 ---
 

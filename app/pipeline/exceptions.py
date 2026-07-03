@@ -31,3 +31,26 @@ class CircularDependencyError(InvalidPipelineError):
 
 class EmptyPipelineError(InvalidPipelineError):
     """Raised when trying to build an empty pipeline."""
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Runner Exceptions
+# ──────────────────────────────────────────────────────────────────────
+
+class PipelineExecutionError(PipelineError):
+    """Base error for execution failures."""
+
+class ProcessorExecutionError(PipelineExecutionError):
+    """Raised when a specific processor fails."""
+
+class PipelineCancelledError(PipelineExecutionError):
+    """Raised when execution is cancelled."""
+
+class PipelinePausedError(PipelineExecutionError):
+    """Raised when operations are attempted on a paused pipeline that don't allow it."""
+
+class InvalidExecutionStateError(PipelineExecutionError):
+    """Raised when an operation is invalid for the current state."""
+
+class ExecutionTimeoutError(PipelineExecutionError):
+    """Raised when execution times out."""

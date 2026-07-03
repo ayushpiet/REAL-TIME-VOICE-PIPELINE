@@ -213,3 +213,47 @@ class PipelineBuildSucceeded(Event):
 @dataclass(frozen=True, slots=True)
 class PipelineBuildFailed(Event):
     """The pipeline build process failed."""
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Pipeline Runner Events
+# ──────────────────────────────────────────────────────────────────────
+
+@dataclass(frozen=True, slots=True)
+class PipelineInitialized(Event):
+    """The pipeline runner was initialized."""
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineCompleted(Event):
+    """The pipeline completed execution successfully."""
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineFailed(Event):
+    """The pipeline failed during execution."""
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineCancelled(Event):
+    """The pipeline execution was cancelled."""
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineShutdown(Event):
+    """The pipeline runner shut down gracefully."""
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessorExecutionStarted(Event):
+    """A processor started execution."""
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessorExecutionCompleted(Event):
+    """A processor completed execution successfully."""
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessorExecutionFailed(Event):
+    """A processor failed during execution."""
