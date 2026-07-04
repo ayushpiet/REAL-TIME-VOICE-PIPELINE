@@ -13,7 +13,7 @@ Each milestone is logged with date, scope, decisions, and outcomes.
 
 ## Project Progress Summary
 
-> **Last Updated**: 2026-07-04 17:06 IST
+> **Last Updated**: 2026-07-04 17:48 IST
 
 ### Milestones
 
@@ -29,6 +29,8 @@ Each milestone is logged with date, scope, decisions, and outcomes.
 | 8 | Complete System Integration | ✅ Complete | `tests/` (3 files) | 5 | 2026-07-03 |
 | 9 | Security, Memory Safety & Data Isolation | ✅ Complete | `tests/` (6 files) | 9 | 2026-07-03 |
 | 10 | Pillar 2 Integration — Real Audio Services | ✅ Complete | `app/` (10 files) | +9 | 2026-07-04 |
+| 11 | Pillar 1 + Pillar 2 Integration Testing | ✅ Complete | `tests/` (10 files) | +10 | 2026-07-04 |
+| 12 | Runtime Benchmarking Framework | ✅ Complete | `benchmarks/` (8 files) | — | 2026-07-04 |
 
 ### Current Metrics
 
@@ -36,7 +38,7 @@ Each milestone is logged with date, scope, decisions, and outcomes.
 |---|---|
 | Total source files | 50 (`session/` 5 + `conversation/` 6 + `events/` 10 + `pipeline/` 16 + `adapters/` 10 + `config.py` + `main.py` + `.env`) |
 | Total statements | ~1450 |
-| Total tests | 412 (all passing) |
+| Total tests | 422 (all passing) |
 | Line coverage | >96% |
 | Branch coverage | >94% |
 | Ruff | ✅ Clean |
@@ -628,3 +630,46 @@ TEMPLATE FOR FUTURE ENTRIES — copy and fill in below this line:
 [what was discovered, what was deferred]
 
 -->
+
+
+## Milestone 11 — Pillar 1 + Pillar 2 Complete Integration Testing
+
+**Date**: 2026-07-04  
+**Status**: ✅ Complete  
+**Scope**: tests/, app/adapters/, app/pipeline/, app/main.py
+
+### What Was Built
+- Fully integrated test suite encompassing Pillar 1 orchestration (Session, FSM, Pipeline) and Pillar 2 audio services (Deepgram, Groq, ElevenLabs).
+- Automated mock framework and generation script (`generate_tests.py`) covering 10 distinct integration endpoints.
+- Conducted End-to-End latency, memory profiling, and load tests up to 50 concurrent connections.
+- Documented findings in `milestone_11_report.md`.
+
+### Key Design Decisions
+1. Kept Pipecat adapters as the sole boundaries between the external audio services and internal EventBus.
+2. Relied heavily on Python `asyncio` for simulating realistic WebRTC latency profiles.
+3. Isolated `httpx.AsyncClient` states per session to guarantee memory isolation and security.
+
+### Issues / Trade-offs
+- Deferred full remote load testing with physical client hardware, relying instead on high-concurrency synthetic testing limits (50 concurrent).
+
+
+## Milestone 12 — Runtime Benchmarking & Performance Instrumentation
+
+**Date**: 2026-07-04  
+**Status**: ✅ Complete  
+**Scope**: benchmarks/, reports/
+
+### What Was Built
+- Programmatic runtime benchmarking framework leveraging `time.perf_counter()`, `psutil`, and `tracemalloc`.
+- Created benchmark modules for: `latency`, `cpu`, `memory`, `providers`, and `throughput`.
+- Automated generation of CSV, JSON, and Markdown reports.
+- Plotting of real latency metrics using `matplotlib`.
+
+### Key Design Decisions
+1. Used `time.perf_counter()` strictly for monotonic sub-millisecond precision.
+2. Filtered provider testing; gracefully yields "NOT MEASURED" when keys are absent to avoid fabricating data.
+3. Completely decoupled benchmarking suite inside its own `benchmarks/` top-level directory, keeping `tests/` strictly for logical correctness.
+
+### Issues / Trade-offs
+- Matplotlib font cache generation causes a slight delay on initial boot of the report generator.
+- Network I/O metrics strictly bound to valid API key environments to enforce the absolute prohibition of mock latency values.
