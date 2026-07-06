@@ -1,31 +1,25 @@
 """
 Real-Time Voice Pipeline — Unified Entry Point
 
-Wires together Pillar 1 (orchestration) and Pillar 2 (real audio services):
-
-    Daily.co (WebRTC mic)
-        ↓
-    DeepgramSTTService (nova-2)
-        ↓
-    GroqLLMService (llama3-8b-8192)
-        ↓
-    ElevenLabsTTSService
-        ↓
-    Daily.co (WebRTC speaker)
-
-Each stage drives the ConversationStateMachine and publishes typed events
-to the EventBus so the entire system is observable from a single stream.
+Supports Dual-Transport architecture:
+1. Daily.co (WebRTC) for browser testing
+2. Twilio (Telephony) for actual phone calls
 
 Usage:
     python -m app.main
+    (The app automatically launches FastAPI if TRANSPORT_MODE=twilio, 
+     or runs directly as a CLI script if TRANSPORT_MODE=daily).
 """
 
 import asyncio
 import uuid
+import sys
 
 from loguru import logger
+from fastapi import FastAPI, WebSocket, Request
+from fastapi.responses import HTMLResponse
 
-from app.config import DAILY_ROOM_URL, BOT_NAME
+from app.config import DAILY_ROOM_URL, BOT_NAME, TRANSPORT_MODE
 from app.conversation.state_machine import ConversationStateMachine
 from app.conversation.transitions import ConversationState
 from app.events.bus import EventBus
@@ -35,10 +29,47 @@ from app.session.manager import SessionManager
 from app.session.state import SessionState
 
 from app.adapters.pipecat.factory import PipecatFactory
-from app.adapters.pipecat.transport import DailyTransportAdapter
+from app.adapters.pipecat.transport import TwilioTransportAdapter
 
 
-async def run_voice_session() -> None:
+# ── FastAPI App for Twilio ──────────────────────────────────────────────
+app = FastAPI()
+
+@app.post("/inbound-call")
+async def handle_inbound_call(request: Request):
+    """Twilio webhook endpoint. Returns TwiML to connect to our WebSocket."""
+    logger.info("Incoming Twilio call received")
+    
+    # Resolve the host for the websocket stream
+    host = request.headers.get("host", "localhost:8000")
+    
+    # If routed through ngrok, force secure websocket (wss)
+    scheme = "wss" if "ngrok" in host or request.headers.get("x-forwarded-proto") == "https" else "ws"
+    
+    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect>
+        <Stream url="{scheme}://{host}/ws" />
+    </Connect>
+</Response>
+"""
+    return HTMLResponse(content=twiml, media_type="application/xml")
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """Twilio WebSocket endpoint for Pipecat audio stream."""
+    await websocket.accept()
+    logger.info("WebSocket connection accepted from Twilio")
+    
+    transport = TwilioTransportAdapter(websocket=websocket)
+    
+    # Block and run the voice session on this websocket
+    await run_voice_session(transport=transport)
+
+
+# ── Core Pipeline Session ───────────────────────────────────────────────
+async def run_voice_session(transport=None) -> None:
     """Bootstrap and execute a single real-time voice session."""
 
     # ── 1. Session ──────────────────────────────────────────────────────
@@ -55,8 +86,7 @@ async def run_voice_session() -> None:
 
     # ── 3. Conversation FSM ─────────────────────────────────────────────
     fsm = ConversationStateMachine(session_id=session_id)
-    # Transition from IDLE → LISTENING (pipeline is about to start)
-    fsm.transition_to(ConversationState.IDLE, reason="session initialized")
+    fsm.transition_to(ConversationState.LISTENING, reason="session initialized")
 
     # ── 4. Pipeline DAG ─────────────────────────────────────────────────
     pipeline_builder = PipelineFactory.create_voice_pipeline(
@@ -66,18 +96,23 @@ async def run_voice_session() -> None:
     pipeline = pipeline_builder.build()
     logger.info("Pipeline DAG built | pipeline_id={pid}", pid=pipeline.pipeline_id)
 
-    # ── 5. Daily.co Transport (Pillar 2) ────────────────────────────────
-    transport = DailyTransportAdapter(
-        room_url=DAILY_ROOM_URL,
-        bot_name=BOT_NAME,
-    )
-    transport.register_events()
-    logger.info("DailyTransportAdapter ready | room={r}", r=DAILY_ROOM_URL)
+    # ── 5. Transport Selection ──────────────────────────────────────────
+    if not transport:
+        # If no transport was injected (i.e. we are running in Daily mode)
+        from app.adapters.pipecat.transport import DailyTransportAdapter
+        transport = DailyTransportAdapter(
+            room_url=DAILY_ROOM_URL,
+            bot_name=BOT_NAME,
+        )
+        transport.register_events()
+        logger.info("DailyTransportAdapter ready | room={r}", r=DAILY_ROOM_URL)
+    else:
+        logger.info("TwilioTransportAdapter injected via WebSocket.")
 
     # ── 6. Execution UUID ───────────────────────────────────────────────
     execution_id = str(uuid.uuid4())
 
-    # ── 7. Pipecat Adapter (glues DAG + real services + FSM) ───────────
+    # ── 7. Pipecat Adapter ──────────────────────────────────────────────
     adapter = PipecatFactory.create_adapter(
         pipeline=pipeline,
         event_bus=event_bus,
@@ -93,7 +128,7 @@ async def run_voice_session() -> None:
 
     # ── 9. Run ──────────────────────────────────────────────────────────
     try:
-        logger.info("Starting pipeline — join your Daily room and speak.")
+        logger.info("Starting pipeline processing loop.")
         await adapter.run()
 
     except KeyboardInterrupt:
@@ -101,14 +136,13 @@ async def run_voice_session() -> None:
 
     except Exception as exc:
         logger.exception("Pipeline error: {e}", e=exc)
-        raise
-
+        # Twilio websocket closure will throw exceptions, catch and swallow if normal
     finally:
         # ── Cleanup ────────────────────────────────────────────────────
         try:
             fsm.close(reason="pipeline finished")
         except Exception:
-            pass  # already closed or invalid state — ignore
+            pass 
 
         session_manager.set_state(session_id, SessionState.CLOSED)
         event_bus.publish_sync(SessionClosed(session_id=session_id))
@@ -119,7 +153,14 @@ async def run_voice_session() -> None:
 
 def main() -> None:
     """Synchronous entry point."""
-    asyncio.run(run_voice_session())
+    if TRANSPORT_MODE.lower() == "twilio":
+        logger.info("TRANSPORT_MODE is set to 'twilio'. Starting FastAPI server...")
+        import uvicorn
+        # Run uvicorn server programmatically
+        uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    else:
+        logger.info("TRANSPORT_MODE is set to 'daily'. Running standalone script...")
+        asyncio.run(run_voice_session())
 
 
 if __name__ == "__main__":

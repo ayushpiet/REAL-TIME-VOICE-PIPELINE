@@ -108,3 +108,35 @@ class MockWebRTCTransport(PipecatTransportAdapter):
 
     def get_pipecat_transport(self) -> Any:
         return {"type": "webrtc", "config": self.kwargs}
+
+class TwilioTransportAdapter(PipecatTransportAdapter):
+    """Concrete transport adapter using Twilio WebSockets (FastAPI)."""
+
+    def __init__(self, websocket: Any) -> None:
+        from pipecat.transports.network.fastapi_websocket import FastAPIWebsocketTransport, FastAPIWebsocketParams
+        from pipecat.serializers.twilio import TwilioFrameSerializer
+        from pipecat.vad.silero import SileroVADAnalyzer
+        from pipecat.vad.vad_analyzer import VADParams
+
+        self._transport = FastAPIWebsocketTransport(
+            websocket=websocket,
+            params=FastAPIWebsocketParams(
+                audio_out_enabled=True,
+                add_wav_header=False,
+                vad_enabled=True,
+                vad_analyzer=SileroVADAnalyzer(
+                    params=VADParams(
+                        confidence=0.7,
+                        start_secs=0.2,
+                        stop_secs=0.5,
+                        min_volume=0.6,
+                    )
+                ),
+                vad_audio_passthrough=True,
+                serializer=TwilioFrameSerializer(stream_sid=""),
+            ),
+        )
+
+    def get_pipecat_transport(self) -> Any:
+        """Return the underlying FastAPIWebsocketTransport instance."""
+        return self._transport
