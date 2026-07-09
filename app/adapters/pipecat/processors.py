@@ -71,26 +71,26 @@ def _create_real_processor(role: ProcessorRole, metadata: dict[str, Any]) -> Any
     )
 
     if role == ProcessorRole.STT:
-        from pipecat.services.deepgram import DeepgramSTTService
+        from pipecat.services.deepgram.stt import DeepgramSTTService
 
         if not DEEPGRAM_API_KEY:
             raise ValueError("DEEPGRAM_API_KEY is not set in your .env file.")
 
         stt = DeepgramSTTService(
             api_key=DEEPGRAM_API_KEY,
-            live_options={
-                "model": metadata.get("model", "nova-2"),
-                "language": metadata.get("language", "en-US"),
-                "smart_format": metadata.get("smart_format", True),
-                "interim_results": metadata.get("interim_results", True),
-                "endpointing": metadata.get("endpointing", 300),
-            },
+            settings=DeepgramSTTService.Settings(
+                model=metadata.get("model", "nova-2"),
+                language=metadata.get("language", "en-US"),
+                smart_format=metadata.get("smart_format", True),
+                interim_results=metadata.get("interim_results", True),
+                endpointing=metadata.get("endpointing", 300),
+            ),
         )
         logger.info("DeepgramSTTService created | model={m}", m=metadata.get("model", "nova-2"))
         return stt
 
     elif role == ProcessorRole.LLM:
-        from pipecat.services.groq import GroqLLMService
+        from pipecat.services.groq.llm import GroqLLMService
 
         if not GROQ_API_KEY:
             raise ValueError("GROQ_API_KEY is not set in your .env file.")
@@ -104,7 +104,7 @@ def _create_real_processor(role: ProcessorRole, metadata: dict[str, Any]) -> Any
         return llm
 
     elif role == ProcessorRole.TTS:
-        from pipecat.services.elevenlabs import ElevenLabsTTSService
+        from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 
         if not ELEVEN_LABS_API_KEY:
             raise ValueError("ELEVEN_LABS_API_KEY is not set in your .env file.")

@@ -29,7 +29,7 @@ class PipecatFactory:
             event_bus:    Shared EventBus instance.
             session_id:   Session UUID.
             execution_id: Execution UUID for this run.
-            transport:    Optional transport adapter (DailyTransportAdapter
+            transport:    Optional transport adapter (LiveKitTransportAdapter
                           in production, MockWebRTCTransport in tests).
             fsm:          Optional ConversationStateMachine.  When provided,
                           the adapter drives FSM state on each pipeline stage.
