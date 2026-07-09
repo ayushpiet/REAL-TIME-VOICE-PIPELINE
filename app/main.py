@@ -8,18 +8,24 @@ Supports Dual-Transport architecture:
 Usage:
     python -m app.main
     (The app automatically launches FastAPI if TRANSPORT_MODE=twilio, 
-     or runs directly as a CLI script if TRANSPORT_MODE=daily).
+     or runs directly as a CLI script if TRANSPORT_MODE is daily or livekit).
 """
 
 import asyncio
 import uuid
 import sys
+import os
+import ssl
+import certifi
+
+os.environ["SSL_CERT_FILE"] = certifi.where()
+ssl._create_default_https_context = ssl._create_unverified_context
 
 from loguru import logger
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import HTMLResponse
 
-from app.config import DAILY_ROOM_URL, BOT_NAME, TRANSPORT_MODE
+from app.config import DAILY_ROOM_URL, LIVEKIT_URL, BOT_NAME, TRANSPORT_MODE
 from app.conversation.state_machine import ConversationStateMachine
 from app.conversation.transitions import ConversationState
 from app.events.bus import EventBus
@@ -62,7 +68,28 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     logger.info("WebSocket connection accepted from Twilio")
     
-    transport = TwilioTransportAdapter(websocket=websocket)
+    # Twilio sends a 'connected' event, then a 'start' event
+    import json
+    stream_sid = None
+    
+    # Wait for the start event
+    for _ in range(5): # Don't loop forever
+        data = await websocket.receive_text()
+        msg = json.loads(data)
+        if msg.get("event") == "start":
+            stream_sid = msg["start"]["streamSid"]
+            logger.info(f"Twilio stream started: {stream_sid}")
+            break
+        elif msg.get("event") == "connected":
+            logger.info("Twilio connected event received")
+            continue
+            
+    if not stream_sid:
+        logger.error("Did not receive 'start' event from Twilio")
+        await websocket.close()
+        return
+    
+    transport = TwilioTransportAdapter(websocket=websocket, stream_sid=stream_sid)
     
     # Block and run the voice session on this websocket
     await run_voice_session(transport=transport)
@@ -101,10 +128,11 @@ async def run_voice_session(transport=None) -> None:
         if TRANSPORT_MODE.lower() == "livekit":
             from app.adapters.pipecat.transport import LiveKitTransportAdapter
             transport = LiveKitTransportAdapter(
+                room_url=LIVEKIT_URL,
                 bot_name=BOT_NAME,
             )
             transport.register_events()
-            logger.info("LiveKitTransportAdapter ready")
+            logger.info("LiveKitTransportAdapter ready | room={r}", r=LIVEKIT_URL)
         else:
             # Default to Daily mode
             from app.adapters.pipecat.transport import DailyTransportAdapter

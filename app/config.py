@@ -19,6 +19,13 @@ load_dotenv(_project_root / ".env", override=False)
 DAILY_API_KEY: str = os.getenv("DAILY_API_KEY", "")
 DAILY_ROOM_URL: str = os.getenv("DAILY_ROOM_URL", "")
 
+# ── LiveKit (WebRTC transport) ─────────────────────────────────────────
+LIVEKIT_URL: str = os.getenv("LIVEKIT_URL", "")
+LIVEKIT_API_KEY: str = os.getenv("LIVEKIT_API_KEY", "")
+LIVEKIT_API_SECRET: str = os.getenv("LIVEKIT_API_SECRET", "")
+LIVEKIT_ROOM: str = os.getenv("LIVEKIT_ROOM", "room-1")
+LIVEKIT_ROOM_NAME: str = os.getenv("LIVEKIT_ROOM_NAME", "default-voice-room")
+
 # ── Deepgram (Speech-to-Text) ──────────────────────────────────────────
 DEEPGRAM_API_KEY: str = os.getenv("DEEPGRAM_API_KEY", "")
 
@@ -37,9 +44,3 @@ BOT_NAME: str = os.getenv("BOT_NAME", "Cybernauts Agent")
 TRANSPORT_MODE: str = os.getenv("TRANSPORT_MODE", "daily") # "daily", "twilio", or "livekit"
 TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
-
-# ── LiveKit (WebRTC transport) ──────────────────────────────────────────
-LIVEKIT_URL: str = os.getenv("LIVEKIT_URL", "")
-LIVEKIT_API_KEY: str = os.getenv("LIVEKIT_API_KEY", "")
-LIVEKIT_API_SECRET: str = os.getenv("LIVEKIT_API_SECRET", "")
-LIVEKIT_ROOM_NAME: str = os.getenv("LIVEKIT_ROOM_NAME", "default-voice-room")

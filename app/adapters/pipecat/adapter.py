@@ -3,7 +3,7 @@ Main Pipecat Adapter.
 
 In production (pipecat-ai installed):
     Uses real pipecat.pipeline.Pipeline / PipelineTask / PipelineRunner.
-    Wires DailyTransport input/output at the front and back of the
+    Wires transport input/output at the front and back of the
     processor array, and attaches PipecatEventBridge frame callbacks so
     every stage drives the ConversationStateMachine and EventBus.
 
@@ -72,17 +72,56 @@ def _build_real_pipeline_task(
 
     processors: List[Any] = []
 
-    # 1. Transport input (Daily mic audio) at the front
+    # 1. Transport input (mic audio) at the front
     if transport is not None:
         real_transport = transport.get_pipecat_transport()
-        if not hasattr(real_transport, "input") or not hasattr(real_transport, "output"):
-            raise ImportError("Mock transport detected (missing input/output methods)")
         processors.append(real_transport.input())
+        
+        # In Pipecat 1.5.0, VAD is a separate processor that must be injected manually
+        from pipecat.processors.audio.vad_processor import VADProcessor
+        from pipecat.audio.vad.silero import SileroVADAnalyzer
+        processors.append(VADProcessor(vad_analyzer=SileroVADAnalyzer()))
 
     # 2. Core processors (STT → LLM → TTS) from the mapper
-    processors.extend(pipecat_processors)
+    # We must wire up the OpenAILLMContext and aggregator for the LLM
+    from pipecat.services.groq.llm import GroqLLMService
+    from pipecat.pipeline.pipeline import Pipeline as PipecatPipeline
+    
+    # We need to find the LLM to attach the aggregator
+    llm = next((p for p in pipecat_processors if isinstance(p, GroqLLMService)), None)
+    
+    if llm:
+        from pipecat.processors.aggregators.llm_context import LLMContext
+        from pipecat.processors.aggregators.llm_response_universal import LLMUserAggregator, LLMAssistantAggregator
+        
+        context = LLMContext(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful and friendly AI assistant. Keep responses short and conversational."
+                }
+            ]
+        )
+        user_agg = LLMUserAggregator(context)
+        asst_agg = LLMAssistantAggregator(context)
+        
+        # Build the exact Pipecat sequence: [stt, user_agg, llm, tts, asst_agg]
+        new_processors = []
+        for p in pipecat_processors:
+            if isinstance(p, GroqLLMService):
+                new_processors.append(user_agg)
+                new_processors.append(p)
+            elif p.__class__.__name__.endswith("TTSService"):
+                new_processors.append(p)
+                new_processors.append(asst_agg)
+            else:
+                new_processors.append(p)
+                
+        processors.extend(new_processors)
+    else:
+        processors.extend(pipecat_processors)
 
-    # 3. Transport output (Daily speaker) at the back
+    # 3. Transport output (speaker) at the back
     if transport is not None:
         real_transport = transport.get_pipecat_transport()
         processors.append(real_transport.output())
@@ -146,22 +185,27 @@ class PipecatAdapter:
 
             # 1. Map internal DAG processors (transport roles excluded — handled separately)
             processor_adapters = PipecatPipelineMapper.map_pipeline(self.pipeline)
-            # Filter out placeholder transport processors — the real ones come from DailyTransport
+            # Filter out placeholder transport processors — the real ones come from the injected transport
             pipecat_processors = [
                 p.get_processor()
                 for p in processor_adapters
                 if not getattr(p.get_processor(), "name", "").startswith("Transport_")
             ]
 
-            # 2. Try to build a real PipelineTask; fall back to mock on ImportError
+            # 2. Try to build a real PipelineTask; fall back to mock on ImportError or Mock transport
             try:
+                if self.transport and "Mock" in type(self.transport).__name__:
+                    raise ImportError("Force mock fallback for tests")
+                if any("Mock" in type(p).__name__ for p in pipecat_processors):
+                    raise ImportError("Force mock fallback for tests because mock processors exist")
                 self.task = _build_real_pipeline_task(
                     pipecat_processors, self.transport, self.bridge
                 )
                 logger.bind(session_id=self.session_id).info(
                     "Real pipecat PipelineTask created"
                 )
-            except ImportError:
+            except ImportError as e:
+                logger.exception(e)
                 logger.bind(session_id=self.session_id).warning(
                     "pipecat-ai not installed — using MockPipecatPipelineTask"
                 )
@@ -193,16 +237,18 @@ class PipecatAdapter:
             await self.lifecycle.start()
 
             # For the mock task: manually simulate processor events
-            # (real PipelineTask drives itself via frame callbacks)
             if isinstance(self.task, MockPipecatPipelineTask):
                 for proc in self.task.processors:
                     name = getattr(proc, "name", "unknown")
                     self.bridge.on_processor_started(name)
                     await asyncio.sleep(0.01)
                     self.bridge.on_processor_completed(name)
-
-            await self.lifecycle.stop()
-            await self.lifecycle.wait_until_done()
+                await self.lifecycle.stop()
+                await self.lifecycle.wait_until_done()
+            else:
+                from pipecat.pipeline.runner import PipelineRunner
+                runner = PipelineRunner()
+                await runner.run(self.task)
 
         except Exception as e:
             self.bridge.on_pipeline_failed(e)
