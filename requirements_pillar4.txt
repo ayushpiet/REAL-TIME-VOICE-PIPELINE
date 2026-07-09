@@ -1,0 +1,5 @@
+elevenlabs
+python-dotenv
+loguru
+pipecat-ai[elevenlabs,silero,local]
+pyaudio

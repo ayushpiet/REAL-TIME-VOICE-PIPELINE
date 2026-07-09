@@ -12,7 +12,10 @@ from app.adapters.pipecat import PipecatPipelineMapper
 from app.adapters.pipecat.exceptions import PipelineConversionError
 
 
-def test_mapper_success() -> None:
+from unittest.mock import patch
+
+@patch("app.adapters.pipecat.processors._create_real_processor", side_effect=ImportError("mocked"))
+def test_mapper_success(mock_create) -> None:
     bus = EventBus()
     builder = PipelineBuilder(bus, "session1")
     builder.add_processor(ProcessorNode("STT", ProcessorRole.STT))

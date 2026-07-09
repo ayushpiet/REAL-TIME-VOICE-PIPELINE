@@ -8,11 +8,12 @@ Supports Dual-Transport architecture:
 Usage:
     python -m app.main
     (The app automatically launches FastAPI if TRANSPORT_MODE=twilio, 
-     or runs directly as a CLI script if TRANSPORT_MODE=livekit).
+     or runs directly as a CLI script if TRANSPORT_MODE is daily or livekit).
 """
 
 import asyncio
 import uuid
+import sys
 import os
 import ssl
 import certifi
@@ -24,7 +25,7 @@ from loguru import logger
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import HTMLResponse
 
-from app.config import LIVEKIT_URL, TRANSPORT_MODE
+from app.config import DAILY_ROOM_URL, LIVEKIT_URL, BOT_NAME, TRANSPORT_MODE
 from app.conversation.state_machine import ConversationStateMachine
 from app.conversation.transitions import ConversationState
 from app.events.bus import EventBus
@@ -124,13 +125,23 @@ async def run_voice_session(transport=None) -> None:
 
     # ── 5. Transport Selection ──────────────────────────────────────────
     if not transport:
-        # If no transport was injected (i.e. we are running in LiveKit mode)
-        from app.adapters.pipecat.transport import LiveKitTransportAdapter
-        transport = LiveKitTransportAdapter(
-            room_url=LIVEKIT_URL,
-        )
-        transport.register_events()
-        logger.info("LiveKitTransportAdapter ready | room={r}", r=LIVEKIT_URL)
+        if TRANSPORT_MODE.lower() == "livekit":
+            from app.adapters.pipecat.transport import LiveKitTransportAdapter
+            transport = LiveKitTransportAdapter(
+                room_url=LIVEKIT_URL,
+                bot_name=BOT_NAME,
+            )
+            transport.register_events()
+            logger.info("LiveKitTransportAdapter ready | room={r}", r=LIVEKIT_URL)
+        else:
+            # Default to Daily mode
+            from app.adapters.pipecat.transport import DailyTransportAdapter
+            transport = DailyTransportAdapter(
+                room_url=DAILY_ROOM_URL,
+                bot_name=BOT_NAME,
+            )
+            transport.register_events()
+            logger.info("DailyTransportAdapter ready | room={r}", r=DAILY_ROOM_URL)
     else:
         logger.info("TwilioTransportAdapter injected via WebSocket.")
 
@@ -184,7 +195,7 @@ def main() -> None:
         # Run uvicorn server programmatically
         uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
     else:
-        logger.info("TRANSPORT_MODE is set to 'livekit'. Running standalone script...")
+        logger.info("TRANSPORT_MODE is set to '{mode}'. Running standalone script...", mode=TRANSPORT_MODE)
         asyncio.run(run_voice_session())
 
 

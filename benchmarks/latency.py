@@ -1,6 +1,8 @@
 
 import time
 from app.session.manager import SessionManager
+from app.events.bus import EventBus
+from app.events.event_types import SessionCreated
 
 def benchmark_session():
     manager = SessionManager()

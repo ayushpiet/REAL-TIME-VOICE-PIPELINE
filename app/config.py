@@ -15,11 +15,16 @@ from dotenv import load_dotenv
 _project_root = Path(__file__).resolve().parent.parent
 load_dotenv(_project_root / ".env", override=False)
 
+# ── Daily.co (WebRTC transport) ────────────────────────────────────────
+DAILY_API_KEY: str = os.getenv("DAILY_API_KEY", "")
+DAILY_ROOM_URL: str = os.getenv("DAILY_ROOM_URL", "")
+
 # ── LiveKit (WebRTC transport) ─────────────────────────────────────────
 LIVEKIT_URL: str = os.getenv("LIVEKIT_URL", "")
 LIVEKIT_API_KEY: str = os.getenv("LIVEKIT_API_KEY", "")
 LIVEKIT_API_SECRET: str = os.getenv("LIVEKIT_API_SECRET", "")
 LIVEKIT_ROOM: str = os.getenv("LIVEKIT_ROOM", "room-1")
+LIVEKIT_ROOM_NAME: str = os.getenv("LIVEKIT_ROOM_NAME", "default-voice-room")
 
 # ── Deepgram (Speech-to-Text) ──────────────────────────────────────────
 DEEPGRAM_API_KEY: str = os.getenv("DEEPGRAM_API_KEY", "")
@@ -35,7 +40,7 @@ ELEVEN_LABS_VOICE_ID: str = os.getenv("ELEVEN_LABS_VOICE_ID", "21m00TlvDq8ikWAM"
 # ── Bot identity ───────────────────────────────────────────────────────
 BOT_NAME: str = os.getenv("BOT_NAME", "Cybernauts Agent")
 
-# ── Twilio (Telephony transport) ──────────────────────────────────────
-TRANSPORT_MODE: str = os.getenv("TRANSPORT_MODE", "livekit") # "livekit" or "twilio"
+# ── Transport (Telephony/WebRTC transport) ────────────────────────────────
+TRANSPORT_MODE: str = os.getenv("TRANSPORT_MODE", "daily") # "daily", "twilio", or "livekit"
 TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")

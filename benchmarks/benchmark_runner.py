@@ -1,4 +1,5 @@
 
+import sys
 from .utils import get_env_info, format_stats
 from .latency import benchmark_session
 from .cpu import benchmark_cpu

@@ -11,8 +11,12 @@ from app.pipeline.processors import ProcessorNode, ProcessorRole
 from app.adapters.pipecat.factory import PipecatFactory
 
 
+from unittest.mock import patch
+
+
+@patch("app.adapters.pipecat.adapter._build_real_pipeline_task", side_effect=ImportError("mocked"))
 @pytest.mark.asyncio
-async def test_performance_pipeline_construction_and_execution() -> None:
+async def test_performance_pipeline_construction_and_execution(mock_build) -> None:
     bus = EventBus()
     
     start_time = time.perf_counter()

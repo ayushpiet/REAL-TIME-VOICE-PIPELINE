@@ -48,8 +48,17 @@ def test_create_pipecat_processor_fallback(mock_create_real):
 @patch("app.config.DEEPGRAM_API_KEY", "test_key")
 def test_create_real_processor_stt_missing_pipecat():
     """Test real STT processor creation raises ImportError in CI where pipecat is missing."""
-    with pytest.raises(ImportError):
-        # We don't mock the imports inside _create_real_processor here,
-        # so it should raise ImportError when it tries to import pipecat.services.deepgram.
+    try:
+        from pipecat.services.deepgram.stt import DeepgramSTTService
+        pipecat_installed = True
+    except ImportError:
+        pipecat_installed = False
+
+    if not pipecat_installed:
+        with pytest.raises(ImportError):
+            from app.adapters.pipecat.processors import _create_real_processor
+            _create_real_processor(ProcessorRole.STT, {})
+    else:
         from app.adapters.pipecat.processors import _create_real_processor
-        _create_real_processor(ProcessorRole.STT, {})
+        res = _create_real_processor(ProcessorRole.STT, {})
+        assert res is not None
