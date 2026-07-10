@@ -25,6 +25,7 @@ from .exceptions import PipecatAdapterError
 from .lifecycle import PipecatLifecycleManager
 from .mapper import PipecatPipelineMapper
 from .transport import PipecatTransportAdapter
+from app.llm.prompts import VOICE_SYSTEM_PROMPT
 
 
 # ── Fallback mock (kept for test compatibility) ───────────────────────
@@ -100,13 +101,10 @@ def _build_real_pipeline_task(
         from pipecat.processors.aggregators.llm_response_universal import LLMUserAggregatorParams
 
         context = LLMContext(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful and friendly AI assistant. Keep responses short and conversational."
-                }
-            ]
-        )
+              messages=[
+                  {"role": "system", "content": VOICE_SYSTEM_PROMPT}
+               ]
+            )
         
         # Optimize Turn Stop Strategy for extreme low latency (bypasses LLM completeness checks)
         from pipecat.turns.user_mute.mute_until_first_bot_complete_user_mute_strategy import MuteUntilFirstBotCompleteUserMuteStrategy
