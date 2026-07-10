@@ -13,6 +13,7 @@ In test environments (pipecat-ai not installed):
 """
 
 import asyncio
+import time
 from typing import Any, List, Optional
 
 from loguru import logger
@@ -94,6 +95,10 @@ def _build_real_pipeline_task(
         from pipecat.processors.aggregators.llm_context import LLMContext
         from pipecat.processors.aggregators.llm_response_universal import LLMUserAggregator, LLMAssistantAggregator
         
+        from pipecat.turns.user_turn_strategies import UserTurnStrategies
+        from pipecat.turns.user_stop.speech_timeout_user_turn_stop_strategy import SpeechTimeoutUserTurnStopStrategy
+        from pipecat.processors.aggregators.llm_response_universal import LLMUserAggregatorParams
+
         context = LLMContext(
             messages=[
                 {
@@ -102,7 +107,22 @@ def _build_real_pipeline_task(
                 }
             ]
         )
-        user_agg = LLMUserAggregator(context)
+        
+        # Optimize Turn Stop Strategy for extreme low latency (bypasses LLM completeness checks)
+        from pipecat.turns.user_mute.mute_until_first_bot_complete_user_mute_strategy import MuteUntilFirstBotCompleteUserMuteStrategy
+        import os
+        
+        mute_strategies = []
+        if os.getenv("ENABLE_INITIAL_GREETING", "True").lower() == "true":
+            mute_strategies.append(MuteUntilFirstBotCompleteUserMuteStrategy())
+            
+        agg_params = LLMUserAggregatorParams(
+            user_turn_strategies=UserTurnStrategies(
+                stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.6)]
+            ),
+            user_mute_strategies=mute_strategies
+        )
+        user_agg = LLMUserAggregator(context, params=agg_params)
         asst_agg = LLMAssistantAggregator(context)
         
         # Build the exact Pipecat sequence: [stt, user_agg, llm, tts, asst_agg]
@@ -127,24 +147,47 @@ def _build_real_pipeline_task(
         processors.append(real_transport.output())
 
     real_pipeline = PipecatPipeline(processors)
-    task = PipelineTask(real_pipeline)
+    from pipecat.observers.base_observer import BaseObserver, FramePushed
 
-    # ── Wire frame callbacks → PipecatEventBridge ────────────────────
-    # Pipecat calls these when specific frame types flow through the pipeline.
+    class EventBridgeObserver(BaseObserver):
+        async def on_push_frame(self, data: FramePushed):
+            from app.main import global_timers
+            frame = data.frame
+            now = time.perf_counter()
+            from pipecat.frames.frames import (
+                TranscriptionFrame, LLMFullResponseStartFrame, LLMFullResponseEndFrame, 
+                TTSStartedFrame, TTSStoppedFrame, UserStartedSpeakingFrame, UserStoppedSpeakingFrame
+            )
+            
+            if isinstance(frame, UserStartedSpeakingFrame):
+                if "vad_user_started" not in global_timers:
+                    global_timers["vad_user_started"] = now
+                bridge.on_user_interrupted()
+                
+            elif isinstance(frame, UserStoppedSpeakingFrame):
+                global_timers["vad_user_stopped"] = now
+                
+            elif isinstance(frame, TranscriptionFrame) and frame.text:
+                if "stt_first_transcript" not in global_timers:
+                    global_timers["stt_first_transcript"] = now
+                bridge.on_transcript_ready(frame.text)
+                
+            elif isinstance(frame, LLMFullResponseStartFrame):
+                if "llm_first_token" not in global_timers:
+                    global_timers["llm_first_token"] = now
+                bridge.on_llm_response_started()
+                    
+            elif isinstance(frame, LLMFullResponseEndFrame):
+                global_timers["llm_complete"] = now
+                bridge.on_llm_response_ready(getattr(frame, "text", ""))
+                
+            elif isinstance(frame, TTSStartedFrame):
+                bridge.on_audio_started()
+                
+            elif isinstance(frame, TTSStoppedFrame):
+                bridge.on_audio_finished()
 
-    @task.event_handler("on_frame_received")
-    async def _on_frame(task_ref: Any, frame: Any) -> None:
-        if isinstance(frame, TranscriptionFrame) and frame.text:
-            bridge.on_transcript_ready(frame.text)
-        elif isinstance(frame, LLMFullResponseEndFrame):
-            bridge.on_llm_response_ready(getattr(frame, "text", ""))
-        elif isinstance(frame, TTSStartedFrame):
-            bridge.on_audio_started()
-        elif isinstance(frame, TTSStoppedFrame):
-            bridge.on_audio_finished()
-        elif isinstance(frame, UserStartedSpeakingFrame):
-            bridge.on_user_interrupted()
-
+    task = PipelineTask(real_pipeline, observers=[EventBridgeObserver()])
     return task
 
 
@@ -233,6 +276,27 @@ class PipecatAdapter:
                 session_id=self.session_id,
                 execution_id=self.execution_id,
             ).info("Running Pipecat adapter")
+            
+            import os
+            if os.getenv("ENABLE_INITIAL_GREETING", "True").lower() == "true":
+                from pipecat.frames.frames import LLMMessagesAppendFrame
+                from app.events.event_types import AssistantGreetingStarted
+                
+                logger.bind(session_id=self.session_id).info("Queueing initial AI greeting")
+                
+                self.event_bus.publish_sync(
+                    AssistantGreetingStarted(session_id=self.session_id)
+                )
+
+                await self.task.queue_frames([
+                    LLMMessagesAppendFrame(
+                        messages=[{
+                            "role": "system",
+                            "content": "A new phone conversation has just started. Generate a short, friendly greeting. Maximum: two short sentences. Invite the caller to speak. Do not introduce yourself repeatedly. Do not mention you are an AI unless asked."
+                        }],
+                        run_llm=True
+                    )
+                ])
 
             await self.lifecycle.start()
 

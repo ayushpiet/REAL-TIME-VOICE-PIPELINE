@@ -37,12 +37,16 @@ from app.adapters.pipecat.factory import PipecatFactory
 from app.adapters.pipecat.transport import TwilioTransportAdapter
 
 
+import time
+global_timers = {}
+
 # ── FastAPI App for Twilio ──────────────────────────────────────────────
 app = FastAPI()
 
 @app.post("/inbound-call")
 async def handle_inbound_call(request: Request):
     """Twilio webhook endpoint. Returns TwiML to connect to our WebSocket."""
+    global_timers["webhook_processing_start"] = time.perf_counter()
     logger.info("Incoming Twilio call received")
     
     # Resolve the host for the websocket stream
@@ -64,6 +68,7 @@ async def handle_inbound_call(request: Request):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """Twilio WebSocket endpoint for Pipecat audio stream."""
+    global_timers["media_stream_connection"] = time.perf_counter()
     await websocket.accept()
     logger.info("WebSocket connection accepted from Twilio")
     
@@ -77,6 +82,7 @@ async def websocket_endpoint(websocket: WebSocket):
         msg = json.loads(data)
         if msg.get("event") == "start":
             stream_sid = msg["start"]["streamSid"]
+            global_timers["first_audio_packet"] = time.perf_counter()
             logger.info(f"Twilio stream started: {stream_sid}")
             break
         elif msg.get("event") == "connected":
@@ -174,6 +180,12 @@ async def run_voice_session(transport=None) -> None:
 
         await event_bus.stop()
         logger.info("Session closed | session_id={sid}", sid=session_id)
+        
+        # Dump latency profiles
+        import app.main
+        for k, v in app.main.global_timers.items():
+            logger.info(f"[LATENCY] {k} = {v}")
+        app.main.global_timers.clear()
 
 
 def main() -> None:

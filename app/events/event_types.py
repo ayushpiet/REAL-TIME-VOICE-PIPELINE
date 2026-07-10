@@ -257,3 +257,31 @@ class ProcessorExecutionCompleted(Event):
 @dataclass(frozen=True, slots=True)
 class ProcessorExecutionFailed(Event):
     """A processor failed during execution."""
+
+# ──────────────────────────────────────────────────────────────────────
+# Greeting Events
+# ──────────────────────────────────────────────────────────────────────
+
+@dataclass(frozen=True, slots=True)
+class AssistantGreetingStarted(Event):
+    """Assistant initiated the conversation greeting."""
+
+
+@dataclass(frozen=True, slots=True)
+class AssistantGreetingGenerated(Event):
+    """LLM generated the greeting text."""
+
+
+@dataclass(frozen=True, slots=True)
+class AssistantGreetingTTSStarted(Event):
+    """TTS began synthesizing the greeting."""
+
+
+@dataclass(frozen=True, slots=True)
+class AssistantGreetingCompleted(Event):
+    """Greeting playback completed."""
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationReady(Event):
+    """Greeting complete and assistant is ready to listen."""

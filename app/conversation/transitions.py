@@ -98,6 +98,7 @@ TRANSITION_MAP: Dict[ConversationState, FrozenSet[ConversationState]] = {
     }),
     ConversationState.LISTENING: frozenset({
         ConversationState.TRANSCRIBING,
+        ConversationState.THINKING,  # Allowed for AI-initiated greetings without transcript
         ConversationState.INTERRUPTED,
         ConversationState.ERROR,
         ConversationState.CLOSED,
@@ -109,6 +110,7 @@ TRANSITION_MAP: Dict[ConversationState, FrozenSet[ConversationState]] = {
     }),
     ConversationState.THINKING: frozenset({
         ConversationState.GENERATING_RESPONSE,
+        ConversationState.GENERATING_AUDIO, # Allowed if intermediate tokens aren't tracked
         ConversationState.ERROR,
         ConversationState.CLOSED,
     }),

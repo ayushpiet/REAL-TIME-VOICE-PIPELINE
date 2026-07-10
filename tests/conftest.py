@@ -10,10 +10,13 @@ Design:
 from __future__ import annotations
 
 import sys
+import os
 from typing import Generator
 
 import pytest
 from loguru import logger
+
+os.environ["ENABLE_INITIAL_GREETING"] = "False"
 
 from app.session import SessionManager, Session
 

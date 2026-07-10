@@ -33,6 +33,13 @@ from app.events.event_types import (
     ThinkingStarted,
     TranscriptReady,
 )
+from app.events.event_types import (
+    AssistantGreetingStarted,
+    AssistantGreetingGenerated,
+    AssistantGreetingTTSStarted,
+    AssistantGreetingCompleted,
+    ConversationReady,
+)
 
 
 class PipecatEventBridge:
@@ -58,6 +65,7 @@ class PipecatEventBridge:
         self._session_id = session_id
         self._execution_id = execution_id
         self._fsm = fsm  # may be None in test environments
+        self._greeting_complete = False
 
     # ── FSM helper ──────────────────────────────────────────────────────
 
@@ -163,8 +171,22 @@ class PipecatEventBridge:
             ThinkingStarted(session_id=self._session_id)
         )
 
+    def on_llm_response_started(self) -> None:
+        """Called when the LLM (Groq) starts generating a response."""
+        # If this was an AI-initiated greeting, we might still be in LISTENING
+        if self._fsm:
+            current_state = self._fsm.get_current_state().value
+            if current_state == "listening":
+                self._fsm_transition("THINKING", reason="AI-initiated greeting (no transcript)")
+                self._bus.publish_sync(ThinkingStarted(session_id=self._session_id))
+                
+        self._fsm_transition("GENERATING_RESPONSE", reason="LLM started generating")
+
     def on_llm_response_ready(self, text: str) -> None:
         """Called when the LLM (Groq) finishes generating a response."""
+        if not self._greeting_complete:
+            self._bus.publish_sync(AssistantGreetingGenerated(session_id=self._session_id, payload={"text": text}))
+            
         self._bus.publish_sync(
             ResponseGenerated(
                 session_id=self._session_id,
@@ -178,6 +200,9 @@ class PipecatEventBridge:
 
     def on_audio_started(self) -> None:
         """Called when ElevenLabs begins streaming audio to the transport output."""
+        if not self._greeting_complete:
+            self._bus.publish_sync(AssistantGreetingTTSStarted(session_id=self._session_id))
+            
         self._fsm_transition("SPEAKING", reason="TTS audio playback started")
         self._bus.publish_sync(
             SpeakingStarted(session_id=self._session_id)
@@ -188,6 +213,12 @@ class PipecatEventBridge:
         self._bus.publish_sync(
             SpeakingFinished(session_id=self._session_id)
         )
+        
+        if not self._greeting_complete:
+            self._greeting_complete = True
+            self._bus.publish_sync(AssistantGreetingCompleted(session_id=self._session_id))
+            self._bus.publish_sync(ConversationReady(session_id=self._session_id))
+            
         # Loop back to LISTENING for the next user turn
         self._fsm_transition("LISTENING", reason="audio playback complete — ready for next turn")
         self._bus.publish_sync(

@@ -137,3 +137,4 @@ def _create_mock_processor(role: ProcessorRole) -> MockPipecatProcessor:
     }
     name = role_to_name.get(role, f"MockCustom_{role.value}")
     return MockPipecatProcessor(name)
+
