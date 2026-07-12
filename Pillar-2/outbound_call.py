@@ -18,7 +18,7 @@ def place_outbound_call(to_number: str, company_context: str | None = None) -> s
 
     # Reuse the exact same webhook used for inbound calls — it just returns
     # TwiML that opens the media stream, regardless of who initiated the call.
-    webhook_url = f"{settings.public_base_url.rstrip('/')}/twilio/incoming"
+    webhook_url = f"{settings.public_base_url.rstrip('/')}/inbound-call"
 
     # Optional: pass company context through as a query param so the webhook
     # can thread it into build_pipeline_task(..., company_context=...).

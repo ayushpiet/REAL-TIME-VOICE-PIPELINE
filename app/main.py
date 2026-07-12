@@ -61,11 +61,18 @@ async def handle_inbound_call(request: Request):
     
     # If routed through ngrok, force secure websocket (wss)
     scheme = "wss" if "ngrok" in host or request.headers.get("x-forwarded-proto") == "https" else "ws"
+
+    company_context = request.query_params.get("company_context", "")
+    context_encoded = urllib.parse.quote(company_context) if company_context else ""
+    
+    stream_url = f"{scheme}://{host}/ws?phone={phone_encoded}"
+    if context_encoded:
+        stream_url += f"&amp;company_context={context_encoded}"
     
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
-        <Stream url="{scheme}://{host}/ws?phone={phone_encoded}" />
+        <Stream url="{stream_url}" />
     </Connect>
 </Response>
 """
@@ -105,13 +112,14 @@ async def websocket_endpoint(websocket: WebSocket):
     
     # Extract phone number from URL query
     phone_number = websocket.query_params.get("phone", "unknown_client")
+    company_context = websocket.query_params.get("company_context", "")
     
     # Block and run the voice session on this websocket
-    await run_voice_session(transport=transport, phone_number=phone_number)
+    await run_voice_session(transport=transport, phone_number=phone_number, company_context=company_context)
 
 
 # ── Core Pipeline Session ───────────────────────────────────────────────
-async def run_voice_session(transport=None, phone_number: str = "unknown_client") -> None:
+async def run_voice_session(transport=None, phone_number: str = "unknown_client", company_context: str = "") -> None:
     """Bootstrap and execute a single real-time voice session."""
 
     # ── Database Persistence: Lookup Client & Summary ───────────────────
@@ -134,7 +142,8 @@ async def run_voice_session(transport=None, phone_number: str = "unknown_client"
     session_manager = SessionManager()
     session = session_manager.create_session(metadata={
         "client_id": client_id_str,
-        "previous_summary": previous_summary
+        "previous_summary": previous_summary,
+        "company_context": company_context
     })
     session_id = session.session_id
     logger.info("Session created | session_id={sid} | client={client}", sid=session_id, client=phone_number)
