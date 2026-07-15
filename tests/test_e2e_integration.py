@@ -30,7 +30,7 @@ async def test_scenario_1_happy_path() -> None:
     session_manager = SessionManager()
     
     # Create session
-    session = session_manager.create_session()
+    session = await session_manager.create_session()
     session_id = session.session_id
     
     # Start conversation FSM
@@ -63,9 +63,9 @@ async def test_scenario_1_happy_path() -> None:
     
     # End conversation and session
     fsm.close()
-    session_manager.delete_session(session_id)
+    await session_manager.delete_session(session_id)
     
-    assert session_manager.get_session(session_id) is None
+    assert await session_manager.get_session(session_id) is None
 
 
 @pytest.mark.asyncio
@@ -99,13 +99,13 @@ async def test_scenario_5_concurrent_sessions() -> None:
     session_manager = SessionManager()
     
     async def run_session(idx: int) -> None:
-        session = session_manager.create_session()
+        session = await session_manager.create_session()
         builder = PipelineBuilder(bus, session.session_id)
         builder.add_processor(ProcessorNode(f"STT_{idx}", ProcessorRole.STT))
         pipeline = builder.build()
         adapter = PipecatFactory.create_adapter(pipeline, bus, session.session_id, f"exec_{idx}")
         await adapter.run()
-        session_manager.delete_session(session.session_id)
+        await session_manager.delete_session(session.session_id)
         
     await asyncio.gather(*(run_session(i) for i in range(10)))
-    assert len(session_manager.list_sessions()) == 0
+    assert len(await session_manager.list_sessions()) == 0
