@@ -146,20 +146,18 @@ def _build_real_pipeline_task(
         new_processors = []
         shared_state = {}
         from app.adapters.pipecat.language_router import LanguageRoutingProcessor, CallTerminationProcessor
+        from app.adapters.pipecat.filler_processor import LatencyFillerProcessor
+        
+        # Add filler processor with hmm.wav
+        filler_wav = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "hmm.wav"))
+        filler_processor = LatencyFillerProcessor(filler_wav_path=filler_wav, delay_threshold_ms=300)
         
         for p in pipecat_processors:
             if isinstance(p, GroqLLMService):
-<<<<<<< Updated upstream
-                from app.adapters.pipecat.language_router import LanguageRoutingProcessor, CallTerminationProcessor
-                new_processors.append(LanguageRoutingProcessor())
-                new_processors.append(user_agg)
-                new_processors.append(p)
-                new_processors.append(CallTerminationProcessor())
-=======
                 new_processors.append(LanguageRoutingProcessor(shared_state=shared_state))
                 new_processors.append(user_agg)
+                new_processors.append(filler_processor)
                 new_processors.append(p)
->>>>>>> Stashed changes
             elif p.__class__.__name__.endswith("TTSService"):
                 new_processors.append(p)
                 new_processors.append(CallTerminationProcessor(shared_state=shared_state))
