@@ -9,10 +9,9 @@ Design Decisions:
     store can be swapped to Redis, PostgreSQL, or any async store by
     implementing the same interface (see ``_sessions`` access pattern).
 
-2.  **Thread-safety via threading.Lock**:  A reentrant lock guards every
-    mutation.  This is sufficient for multi-threaded ASGI servers
-    (Uvicorn with workers) and can later be replaced with
-    ``asyncio.Lock`` when the manager is made fully async.
+2.  **Thread-safety via asyncio.Lock**:  An async lock guards every
+    mutation.  This is necessary for async concurrency without blocking
+    the main event loop.
 
 3.  **Optional[Session] returns**:  ``get_session`` returns ``None``
     rather than raising on missing keys, following the "ask forgiveness"
@@ -24,14 +23,13 @@ Design Decisions:
 
 Future Compatibility:
     - Replace ``dict`` with an async Redis client for distributed state.
-    - Add ``async`` variants of every public method for asyncio pipelines.
     - Expose via FastAPI dependency injection (``Depends(get_session_manager)``).
     - Add TTL-based auto-cleanup for idle sessions.
 """
 
 from __future__ import annotations
 
-import threading
+import asyncio
 from typing import Dict, List, Optional
 
 from loguru import logger
@@ -50,15 +48,7 @@ class SessionManager:
         - Track activity timestamps for idle-timeout enforcement.
 
     Thread Safety:
-        All public methods acquire ``_lock`` before mutating ``_sessions``.
-        Safe for use with multi-threaded ASGI servers (e.g., Uvicorn workers).
-
-    Example::
-
-        manager = SessionManager()
-        session = manager.create_session()
-        manager.add_message(session.session_id, role="user", content="Hi!")
-        history = manager.get_history(session.session_id)
+        All public methods acquire ``_lock`` (asyncio.Lock) before mutating ``_sessions``.
     """
 
     # ------------------------------------------------------------------
@@ -67,11 +57,11 @@ class SessionManager:
     def __init__(self) -> None:
         """Initialise the session manager with an empty in-memory store.
 
-        The backing ``_sessions`` dict is guarded by a reentrant lock so
+        The backing ``_sessions`` dict is guarded by an asyncio lock so
         that concurrent request handlers cannot corrupt state.
         """
         self._sessions: Dict[str, Session] = {}
-        self._lock: threading.Lock = threading.Lock()
+        self._lock: asyncio.Lock = asyncio.Lock()
 
         logger.info("SessionManager initialised (in-memory store)")
 
@@ -79,7 +69,7 @@ class SessionManager:
     #  SESSION LIFECYCLE
     # ==================================================================
 
-    def create_session(self, metadata: Optional[Dict[str, str]] = None) -> Session:
+    async def create_session(self, metadata: Optional[Dict[str, str]] = None) -> Session:
         """Create a new session and register it in the store.
 
         Args:
@@ -91,7 +81,7 @@ class SessionManager:
         """
         session = Session(metadata=metadata or {})
 
-        with self._lock:
+        async with self._lock:
             self._sessions[session.session_id] = session
 
         logger.bind(session_id=session.session_id).info(
@@ -100,7 +90,7 @@ class SessionManager:
         )
         return session
 
-    def get_session(self, session_id: str) -> Optional[Session]:
+    async def get_session(self, session_id: str) -> Optional[Session]:
         """Retrieve a session by its ID.
 
         Args:
@@ -109,7 +99,7 @@ class SessionManager:
         Returns:
             The ``Session`` if found, otherwise ``None``.
         """
-        with self._lock:
+        async with self._lock:
             session = self._sessions.get(session_id)
 
         if session is None:
@@ -119,7 +109,7 @@ class SessionManager:
 
         return session
 
-    def delete_session(self, session_id: str) -> bool:
+    async def delete_session(self, session_id: str) -> bool:
         """Remove a session from the store.
 
         The session's state is set to ``CLOSED`` before removal so that
@@ -131,7 +121,7 @@ class SessionManager:
         Returns:
             ``True`` if the session was found and deleted, ``False`` otherwise.
         """
-        with self._lock:
+        async with self._lock:
             session = self._sessions.pop(session_id, None)
 
         if session is None:
@@ -151,17 +141,17 @@ class SessionManager:
         )
         return True
 
-    def list_sessions(self) -> List[Session]:
+    async def list_sessions(self) -> List[Session]:
         """Return a snapshot list of all active sessions.
 
         Returns:
             A shallow copy of the sessions list to prevent external
             mutation of the internal store.
         """
-        with self._lock:
+        async with self._lock:
             return list(self._sessions.values())
 
-    def session_exists(self, session_id: str) -> bool:
+    async def session_exists(self, session_id: str) -> bool:
         """Check whether a session is registered.
 
         Args:
@@ -170,47 +160,30 @@ class SessionManager:
         Returns:
             ``True`` if the session exists in the store.
         """
-        with self._lock:
+        async with self._lock:
             return session_id in self._sessions
 
-    def total_sessions(self) -> int:
+    async def total_sessions(self) -> int:
         """Return the number of currently active sessions.
 
         Returns:
             Integer count of sessions in the store.
         """
-        with self._lock:
+        async with self._lock:
             return len(self._sessions)
 
     # ==================================================================
     #  CONVERSATION MANAGEMENT
     # ==================================================================
 
-    def add_message(
+    async def add_message(
         self,
         session_id: str,
         role: Role,
         content: str,
     ) -> Optional[Message]:
-        """Append a message to a session's conversation history.
-
-        This is the primary ingestion point for all conversational turns —
-        STT transcripts (``"user"``), LLM completions (``"assistant"``),
-        and system prompts (``"system"``).
-
-        Args:
-            session_id: Target session UUID.
-            role:       One of ``"system"``, ``"user"``, or ``"assistant"``.
-            content:    The textual content of the message.
-
-        Returns:
-            The created ``Message`` on success, or ``None`` if the
-            session was not found.
-
-        Raises:
-            ValueError: If ``role`` or ``content`` fails Message validation.
-        """
-        with self._lock:
+        """Append a message to a session's conversation history."""
+        async with self._lock:
             session = self._sessions.get(session_id)
 
         if session is None:
@@ -219,10 +192,9 @@ class SessionManager:
             )
             return None
 
-        # Message.__post_init__ validates role + content; let it raise.
         message = Message(role=role, content=content)
 
-        with self._lock:
+        async with self._lock:
             session.history.append(message)
             session.touch()
 
@@ -233,17 +205,9 @@ class SessionManager:
         )
         return message
 
-    def get_history(self, session_id: str) -> Optional[List[Message]]:
-        """Retrieve the full conversation history for a session.
-
-        Args:
-            session_id: Target session UUID.
-
-        Returns:
-            A **copy** of the message list (so callers cannot mutate the
-            internal history), or ``None`` if the session is not found.
-        """
-        with self._lock:
+    async def get_history(self, session_id: str) -> Optional[List[Message]]:
+        """Retrieve the full conversation history for a session."""
+        async with self._lock:
             session = self._sessions.get(session_id)
 
         if session is None:
@@ -252,20 +216,11 @@ class SessionManager:
             )
             return None
 
-        # Return a shallow copy to prevent external list mutations.
         return list(session.history)
 
-    def clear_history(self, session_id: str) -> bool:
-        """Remove all messages from a session's conversation history.
-
-        Args:
-            session_id: Target session UUID.
-
-        Returns:
-            ``True`` if the history was cleared, ``False`` if the session
-            was not found.
-        """
-        with self._lock:
+    async def clear_history(self, session_id: str) -> bool:
+        """Remove all messages from a session's conversation history."""
+        async with self._lock:
             session = self._sessions.get(session_id)
 
         if session is None:
@@ -276,7 +231,7 @@ class SessionManager:
 
         cleared_count = len(session.history)
 
-        with self._lock:
+        async with self._lock:
             session.history.clear()
             session.touch()
 
@@ -290,19 +245,9 @@ class SessionManager:
     #  ACTIVITY TRACKING
     # ==================================================================
 
-    def update_last_activity(self, session_id: str) -> bool:
-        """Manually refresh the ``last_activity`` timestamp of a session.
-
-        Useful for keep-alive pings or non-message interactions (e.g.,
-        WebSocket heartbeats) that should prevent idle-timeout cleanup.
-
-        Args:
-            session_id: Target session UUID.
-
-        Returns:
-            ``True`` if the session was found and updated, ``False`` otherwise.
-        """
-        with self._lock:
+    async def update_last_activity(self, session_id: str) -> bool:
+        """Manually refresh the ``last_activity`` timestamp of a session."""
+        async with self._lock:
             session = self._sessions.get(session_id)
 
         if session is None:
@@ -323,18 +268,9 @@ class SessionManager:
     #  STATE TRANSITIONS  (prepared for future Pipecat integration)
     # ==================================================================
 
-    def set_state(self, session_id: str, new_state: SessionState) -> bool:
-        """Transition a session to a new state.
-
-        Args:
-            session_id: Target session UUID.
-            new_state:  The ``SessionState`` to transition to.
-
-        Returns:
-            ``True`` if the transition succeeded, ``False`` if the session
-            was not found or is already CLOSED.
-        """
-        with self._lock:
+    async def set_state(self, session_id: str, new_state: SessionState) -> bool:
+        """Transition a session to a new state."""
+        async with self._lock:
             session = self._sessions.get(session_id)
 
         if session is None:
@@ -351,7 +287,7 @@ class SessionManager:
 
         old_state = session.current_state
 
-        with self._lock:
+        async with self._lock:
             session.current_state = new_state
             session.touch()
 
@@ -366,7 +302,8 @@ class SessionManager:
     # Dunder helpers
     # ------------------------------------------------------------------
     def __repr__(self) -> str:
-        return f"SessionManager(active_sessions={self.total_sessions()})"
+        # Avoid async call in repr, just return basic info
+        return f"SessionManager(sessions_stored={len(self._sessions)})"
 
-    def __len__(self) -> int:
-        return self.total_sessions()
+    # __len__ cannot be async and return an int directly using await, so we remove it
+    # to avoid confusion. Callers should use await manager.total_sessions().

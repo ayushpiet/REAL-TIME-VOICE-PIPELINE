@@ -241,6 +241,4 @@ All implementation progress, architectural decisions, validation results, benchm
 
 We welcome pull requests. Please ensure that all contributions strictly adhere to our test coverage policies (no PRs with failing `pytest`, `ruff`, or `mypy` checks). Ensure new architectural decisions are logged in `DEVLOG.md`.
 
-## 16. License
 
-This project is licensed under the MIT License.

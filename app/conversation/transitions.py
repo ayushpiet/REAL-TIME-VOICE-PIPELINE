@@ -99,33 +99,46 @@ TRANSITION_MAP: Dict[ConversationState, FrozenSet[ConversationState]] = {
     ConversationState.LISTENING: frozenset({
         ConversationState.TRANSCRIBING,
         ConversationState.THINKING,  # Allowed for AI-initiated greetings without transcript
+        ConversationState.GENERATING_RESPONSE, # LLM still streaming chunks
+        ConversationState.GENERATING_AUDIO,    # TTS resuming after a pause
+        ConversationState.SPEAKING,            # TTS speaking resuming
         ConversationState.INTERRUPTED,
         ConversationState.ERROR,
         ConversationState.CLOSED,
     }),
     ConversationState.TRANSCRIBING: frozenset({
         ConversationState.THINKING,
+        ConversationState.INTERRUPTED,
         ConversationState.ERROR,
         ConversationState.CLOSED,
     }),
     ConversationState.THINKING: frozenset({
         ConversationState.GENERATING_RESPONSE,
         ConversationState.GENERATING_AUDIO, # Allowed if intermediate tokens aren't tracked
+        ConversationState.TRANSCRIBING,     # User barged in while thinking
+        ConversationState.INTERRUPTED,
         ConversationState.ERROR,
         ConversationState.CLOSED,
     }),
     ConversationState.GENERATING_RESPONSE: frozenset({
         ConversationState.GENERATING_AUDIO,
+        ConversationState.SPEAKING,         # TTS starts before LLM finishes
+        ConversationState.TRANSCRIBING,     # User barged in
+        ConversationState.INTERRUPTED,
         ConversationState.ERROR,
         ConversationState.CLOSED,
     }),
     ConversationState.GENERATING_AUDIO: frozenset({
         ConversationState.SPEAKING,
+        ConversationState.LISTENING,        # LLM finished or stream dropped
+        ConversationState.TRANSCRIBING,     # User barged in
+        ConversationState.INTERRUPTED,
         ConversationState.ERROR,
         ConversationState.CLOSED,
     }),
     ConversationState.SPEAKING: frozenset({
         ConversationState.LISTENING,
+        ConversationState.TRANSCRIBING,     # User barged in
         ConversationState.INTERRUPTED,
         ConversationState.IDLE,
         ConversationState.ERROR,

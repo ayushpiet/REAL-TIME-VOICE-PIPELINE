@@ -7,11 +7,17 @@ import os
 import sys
 from typing import Any
 from fastapi import WebSocket
+import importlib.util
 from pipecat.serializers.twilio import TwilioFrameSerializer
-from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 
-from pipecat.transports.websocket.fastapi import FastAPIWebsocketTransport, FastAPIWebsocketParams
+def _import_pillar2_module(module_name: str, file_name: str):
+    """Helper to load Pillar 2 modules without sys.path conflicts."""
+    path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "Pillar_2", file_name))
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class PipecatTransportAdapter(abc.ABC):
@@ -24,42 +30,21 @@ class PipecatTransportAdapter(abc.ABC):
 
 
 def _build_vad_analyzer():
-    return SileroVADAnalyzer(
-        params=VADParams(
-            confidence=0.7,
-            start_secs=0.2,
-            stop_secs=0.5,
-            min_volume=0.6,
-        )
-    )
+    # Calling VAD analyzer from Pillar_2 as requested by user
+    pillar2_pipeline = _import_pillar2_module("pillar2_pipeline", "pipeline.py")
+    return pillar2_pipeline.build_vad_analyzer()
 
 
 class TwilioTransportAdapter(PipecatTransportAdapter):
     """Implementation for Twilio WebSockets."""
 
     def __init__(self, websocket: WebSocket, stream_sid: str):
-        serializer = TwilioFrameSerializer(
-            stream_sid=stream_sid,
-            params=TwilioFrameSerializer.InputParams(
-                twilio_sample_rate=8000,
-                sample_rate=8000,
-                auto_hang_up=False,
-            ),
-        )
-
-        self.transport = FastAPIWebsocketTransport(
+        # Call Pillar_2 factory
+        pillar2_twilio = _import_pillar2_module("pillar2_twilio", "twilio_bot.py")
+        self.transport = pillar2_twilio.build_twilio_transport(
             websocket=websocket,
-            params=FastAPIWebsocketParams(
-                audio_in_enabled=True,
-                audio_out_enabled=True,
-                audio_in_sample_rate=8000,
-                audio_out_sample_rate=8000,
-                add_wav_header=False,
-                # Note: vad_enabled/vad_analyzer are NOT valid on FastAPIWebsocketParams in
-                # Pipecat 1.5.0. Deepgram handles its own endpointing via endpointing="300",
-                # so no transport-level VAD is needed for Twilio.
-                serializer=serializer,
-            ),
+            stream_sid=stream_sid,
+            vad_analyzer=_build_vad_analyzer()
         )
 
     def get_pipecat_transport(self) -> Any:
@@ -85,20 +70,13 @@ class LiveKitTransportAdapter(PipecatTransportAdapter):
             .to_jwt()
         )
 
-        from pipecat.transports.livekit.transport import LiveKitParams, LiveKitTransport
-
-        self.transport = LiveKitTransport(
-            url=room_url,
+        # Call Pillar_2 factory
+        pillar2_livekit = _import_pillar2_module("pillar2_livekit", "livekit_bot.py")
+        self.transport = pillar2_livekit.build_livekit_transport(
+            room_url=room_url,
             token=token,
             room_name=LIVEKIT_ROOM,
-            params=LiveKitParams(
-                audio_in_enabled=True,
-                audio_out_enabled=True,
-                vad_enabled=False,       # Disabled to prevent pipecat from calling finalize() on Deepgram
-                vad_analyzer=_build_vad_analyzer(),
-                # Bot's own TTS output can be interrupted the instant user audio crosses the VAD threshold above.
-                audio_out_is_live=True,
-            ),
+            vad_analyzer=_build_vad_analyzer()
         )
 
     def get_pipecat_transport(self) -> Any:

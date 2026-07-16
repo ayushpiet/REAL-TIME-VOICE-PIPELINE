@@ -8,9 +8,20 @@ is installed, or a MockPipecatProcessor when it is not (test environments).
 
 from typing import Any
 
+import os
+import importlib.util
+
 from loguru import logger
 
 from app.pipeline.processors import ProcessorRole
+
+def _import_pillar2_module(module_name: str, file_name: str):
+    """Helper to load Pillar 2 modules without sys.path conflicts."""
+    path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "Pillar_2", file_name))
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class PipecatProcessorAdapter:
@@ -71,25 +82,17 @@ def _create_real_processor(role: ProcessorRole, metadata: dict[str, Any]) -> Any
     )
 
     if role == ProcessorRole.STT:
-        from pipecat.services.deepgram.stt import DeepgramSTTService
-
         if not DEEPGRAM_API_KEY:
             raise ValueError("DEEPGRAM_API_KEY is not set in your .env file.")
 
-        stt = DeepgramSTTService(
+        # Call Pillar_2 STT factory
+        pillar2_pipeline = _import_pillar2_module("pillar2_pipeline", "pipeline.py")
+        stt = pillar2_pipeline.create_deepgram_stt(
             api_key=DEEPGRAM_API_KEY,
-            encoding="linear16",
-            sample_rate=8000,
-            channels=1,
-            settings=DeepgramSTTService.Settings(
-                model=metadata.get("model", "nova-2-phonecall"),
-                language=metadata.get("language", "en-US"),
-                smart_format=metadata.get("smart_format", True),
-                interim_results=metadata.get("interim_results", True),
-                endpointing=metadata.get("endpointing", 300),
-            ),
+            model=metadata.get("model", "nova-2"),
+            language=metadata.get("language", "hi")
         )
-        logger.info("DeepgramSTTService created | model={m}", m=metadata.get("model", "nova-2-phonecall"))
+        logger.info("DeepgramSTTService created (via Pillar 2) | model={m}", m=metadata.get("model", "nova-2"))
         return stt
 
     elif role == ProcessorRole.LLM:
@@ -117,7 +120,7 @@ def _create_real_processor(role: ProcessorRole, metadata: dict[str, Any]) -> Any
         model_name = metadata.get("model", ELEVENLABS_MODEL)
         tts = ElevenLabsTTSService(
             api_key=ELEVEN_LABS_API_KEY,
-            auto_mode=True,  # Low-latency streaming mode (replaces optimize_streaming_latency)
+            sample_rate=8000,
             settings=ElevenLabsTTSService.Settings(
                 voice=voice_id,
                 model=model_name,

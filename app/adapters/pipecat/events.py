@@ -43,16 +43,6 @@ from app.events.event_types import (
 
 
 class PipecatEventBridge:
-    """Bridges Pipecat frame callbacks into our internal Event Bus.
-
-    Args:
-        event_bus:    The shared EventBus instance.
-        session_id:   Session UUID this bridge is scoped to.
-        execution_id: Execution UUID for this pipeline run.
-        fsm:          Optional ConversationStateMachine to drive on each
-                      pipeline stage transition.  When None the bridge
-                      only publishes events (preserving test compatibility).
-    """
 
     def __init__(
         self,
@@ -70,17 +60,13 @@ class PipecatEventBridge:
     # ── FSM helper ──────────────────────────────────────────────────────
 
     def _fsm_transition(self, target_state_name: str, reason: str) -> None:
-        """Safely drive the FSM if one is attached.
-
-        Imports ConversationState lazily to avoid circular imports at
-        module load time.  Logs and swallows FSM errors so a bad state
-        transition never crashes the running pipeline.
-        """
         if self._fsm is None:
             return
         try:
             from app.conversation.transitions import ConversationState
             target = ConversationState[target_state_name]
+            if getattr(self._fsm, "get_current_state", lambda: None)() == target:
+                return
             self._fsm.transition_to(target, reason=reason)  # type: ignore[union-attr]
         except Exception as exc:
             logger.bind(session_id=self._session_id).warning(

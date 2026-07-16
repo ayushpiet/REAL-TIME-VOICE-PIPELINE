@@ -4,6 +4,7 @@ Ensures independent data structures per instance.
 """
 
 import pytest
+import asyncio
 
 from app.session.manager import SessionManager
 from app.conversation.state_machine import ConversationStateMachine
@@ -18,7 +19,7 @@ async def test_session_isolation() -> None:
     manager = SessionManager()
     
     # Create 100 sessions
-    sessions = [manager.create_session(metadata={"idx": str(i)}) for i in range(100)]
+    sessions = await asyncio.gather(*(manager.create_session(metadata={"idx": str(i)}) for i in range(100)))
     
     # Verify independent IDs
     session_ids = set(s.session_id for s in sessions)
@@ -26,15 +27,15 @@ async def test_session_isolation() -> None:
     
     # Verify metadata and history references are independent
     for s in sessions:
-        manager.add_message(s.session_id, role="user", content=f"Hello {s.metadata['idx']}")
+        await manager.add_message(s.session_id, role="user", content=f"Hello {s.metadata['idx']}")
         
     for i, s in enumerate(sessions):
         assert len(s.history) == 1
         assert s.history[0].content == f"Hello {i}"
         
     # Deleting one should not affect others
-    manager.delete_session(sessions[0].session_id)
-    assert manager.total_sessions() == 99
+    await manager.delete_session(sessions[0].session_id)
+    assert await manager.total_sessions() == 99
 
 
 def test_conversation_isolation() -> None:
