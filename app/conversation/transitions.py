@@ -143,6 +143,7 @@ TRANSITION_MAP: Dict[ConversationState, FrozenSet[ConversationState]] = {
         ConversationState.IDLE,
         ConversationState.ERROR,
         ConversationState.CLOSED,
+        ConversationState.GENERATING_AUDIO, # LLM response finishes after TTS started
     }),
     ConversationState.INTERRUPTED: frozenset({
         ConversationState.LISTENING,
