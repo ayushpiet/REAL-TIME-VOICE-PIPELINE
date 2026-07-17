@@ -676,3 +676,37 @@ Validate that a returning caller is correctly identified using the stored phone 
 ### Lessons Learned
 - The `get_or_create_client` pattern works efficiently and prevents duplicates when correctly combined with database unique constraints and indexed lookups.
 - Utilizing `AsyncSession` context managers ensures clean database connections and transaction management even in testing scenarios.
+
+---
+## Milestone — Pillar 3: Fixed Conversation History Tracking for Summary Generation
+**Date**: 2026-07-17
+**Status**: ✅ Complete — Implemented and Tested
+
+### Problem
+Conversation summaries generated at call-end were always generic ("no conversation was recorded, caller's identity and purpose are unknown") regardless of actual call content. Root cause: `SessionManager.add_message()` was defined but never called anywhere in the live pipeline — `session.history` was always empty when `on_session_closed` tried to build a summary from it.
+
+### Root Cause Analysis
+- `EventBridgeObserver` (inside `_build_real_pipeline_task`) already captured `TranscriptionFrame` (user speech) and `LLMFullResponseEndFrame` (bot responses) for latency metrics, but never persisted them to session history.
+- A separate `SessionManager()` instance was being instantiated locally inside the adapter (for `previous_summary` lookup), disconnected from the actual `session_manager` instance created in `run_voice_session` — each instantiation created its own isolated in-memory `_sessions` dict.
+- Separately, `event_bus.stop()` was cancelling the background event worker immediately after publishing `SessionClosed`, without waiting for the queued event to actually be processed — this meant the summary-persistence subscriber (`on_session_closed`) sometimes never ran at all.
+
+### Fix
+1. Wired the real `session_manager` instance through the full adapter chain:
+   `app/main.py` → `PipecatFactory.create_adapter()` → `PipecatAdapter.__init__` → `_build_task` → `_build_real_pipeline_task` → `EventBridgeObserver`
+
+   `EventBridgeObserver.on_push_frame` now calls `session_manager.add_message(session_id, role, content)` for both user transcripts and assistant responses, so `session.history` is populated live during the call.
+
+2. Added `await event_bus._queue.join()` before `event_bus.stop()` in `run_voice_session`, ensuring the `SessionClosed` event is fully processed (and the summary persisted) before the event bus worker is torn down.
+
+### Additional fixes bundled in this PR
+- **DB connection stability**: Added `pool_pre_ping=True` and `pool_recycle=300` to the async engine in `app/db/connection.py` to prevent intermittent `connection is closed` errors from Neon's serverless Postgres on cold starts.
+- **Fallback client lookup**: `on_session_closed` now falls back to a `phone_number`-based client lookup if `client_id` is missing from session metadata (covers an upstream webhook/websocket phone-tracking gap, tracked separately with the team).
+
+### Testing
+- Verified via live Twilio call: confirmed `add_message` fires for every user/assistant turn via debug logs (`Message added | role=user | length=...`).
+- Verified via manual DB script (`check_summary.py`) that the generated summary accurately reflects real call content (e.g. specific questions asked and answers given) instead of the previous generic placeholder.
+- Confirmed no regressions to greeting, barge-in, or `end_call` function-calling behavior.
+
+### Lessons Learned
+- Instantiating a manager/service class fresh in multiple places (instead of passing a shared instance) silently breaks state continuity when the backing store is in-memory — this is easy to miss because no exception is raised, the code just quietly operates on an empty store.
+- Cancelling a background worker right after publishing to its queue is a classic race condition — always drain or await pending work before teardown.
