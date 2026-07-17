@@ -169,9 +169,10 @@ async def run_voice_session(
     # ── 1. Session ──────────────────────────────────────────────────────
     session_manager = SessionManager()
     session = await session_manager.create_session(metadata={
-        "client_id": client_id_str,
-        "previous_summary": previous_summary,
-        "company_context": company_context
+    "client_id": client_id_str,
+    "previous_summary": previous_summary,
+    "company_context": company_context,
+    "phone_number": phone_number
     })
     session_id = session.session_id
     logger.info("Session created | session_id={sid} | client={client}", sid=session_id, client=phone_number)
@@ -190,14 +191,34 @@ async def run_voice_session(
     
     # Subscribe to SessionClosed for DB Persistence
     async def on_session_closed(event: SessionClosed) -> None:
+        from app.repositories.client_repository import ClientRepository
         async with db_manager.get_session() as db_session:
             sess_data = await session_manager.get_session(event.session_id)
             if not sess_data:
                 return
             
             c_id_str = sess_data.metadata.get("client_id")
+            c_id = None
+
             if c_id_str:
-                c_id = uuid.UUID(c_id_str)
+                try:
+                    c_id = uuid.UUID(c_id_str)
+                except ValueError:
+                    c_id = None
+
+            if not c_id:
+                # Fallback: client_id wasn't passed through properly (e.g. websocket
+                # query param missing/lost upstream), so look up/create the client
+                # using the phone_number stored on the session instead.
+                fallback_phone = sess_data.metadata.get("phone_number") or "unknown_client"
+                fallback_client = await ClientRepository.get_or_create_client(db_session, fallback_phone)
+                c_id = fallback_client.id
+                logger.warning(
+                    "client_id was missing in session metadata for {sid}; fell back to phone_number lookup ({phone})",
+                    sid=event.session_id, phone=fallback_phone,
+                )
+
+            if c_id:
                 
                 # Mock LLM Summary Generation (in real prod, call an LLM API here with transcript)
                 # Real LLM Summary Generation — combines previous summary + this call's
@@ -249,7 +270,6 @@ async def run_voice_session(
 
     await event_bus.subscribe("SessionClosed", on_session_closed)
                 
-    await event_bus.subscribe(SessionClosed.__name__, on_session_closed)
     await event_bus.start()
     event_bus.publish_sync(SessionCreated(session_id=session_id))
     logger.info("EventBus started")
@@ -292,6 +312,7 @@ async def run_voice_session(
         execution_id=execution_id,
         transport=transport,
         fsm=fsm,
+        session_manager=session_manager,
     )
     logger.info("PipecatAdapter ready | execution_id={eid}", eid=execution_id)
 

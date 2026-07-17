@@ -60,6 +60,7 @@ def _build_real_pipeline_task(
     pipecat_processors: List[Any],
     transport: Optional[PipecatTransportAdapter],
     bridge: PipecatEventBridge,
+    session_manager: Optional[Any] = None,
 ) -> Any:
     """Build an actual pipecat.pipeline.task.PipelineTask.
 
@@ -102,10 +103,7 @@ def _build_real_pipeline_task(
         from pipecat.processors.aggregators.llm_response_universal import LLMUserAggregatorParams
 
         session_id = bridge._session_id
-        from app.session.manager import SessionManager
-        sm = SessionManager()
-        sess = sm._sessions.get(session_id)
-        prev_summary = sess.metadata.get("previous_summary", "") if sess else ""
+        prev_summary = ""  # will be populated via session_manager only in async contexts (see EventBridgeObserver)
         
         system_content = VOICE_SYSTEM_PROMPT + "\n\n" + get_faq_context_block()
         if prev_summary:
@@ -204,6 +202,10 @@ def _build_real_pipeline_task(
                 if "stt_first_transcript" not in global_timers:
                     global_timers["stt_first_transcript"] = now
                 bridge.on_transcript_ready(frame.text)
+                if session_manager:
+                    await session_manager.add_message(
+                        bridge._session_id, role="user", content=frame.text
+                    )
                 
             elif isinstance(frame, LLMFullResponseStartFrame):
                 if "llm_first_token" not in global_timers:
@@ -212,7 +214,12 @@ def _build_real_pipeline_task(
                     
             elif isinstance(frame, LLMFullResponseEndFrame):
                 global_timers["llm_complete"] = now
-                bridge.on_llm_response_ready(getattr(frame, "text", ""))
+                response_text = getattr(frame, "text", "")
+                bridge.on_llm_response_ready(response_text)
+                if session_manager and response_text:
+                    await session_manager.add_message(
+                        bridge._session_id, role="assistant", content=response_text
+                    )
                 
             elif isinstance(frame, TTSStartedFrame):
                 bridge.on_audio_started()
@@ -241,13 +248,14 @@ class PipecatAdapter:
         execution_id: str,
         transport: Optional[PipecatTransportAdapter] = None,
         fsm: Optional[Any] = None,
+        session_manager: Optional[Any] = None,
     ) -> None:
         self.pipeline = pipeline
         self.event_bus = event_bus
         self.session_id = session_id
         self.execution_id = execution_id
         self.transport = transport
-
+        self.session_manager = session_manager
         # Bridge is created with the optional FSM — None is fine for tests
         self.bridge = PipecatEventBridge(event_bus, session_id, execution_id, fsm=fsm)
         self.task: Any = None
@@ -279,7 +287,7 @@ class PipecatAdapter:
                 if any("Mock" in type(p).__name__ for p in self.pipecat_processors):
                     raise ImportError("Force mock fallback for tests because mock processors exist")
                 self.task = _build_real_pipeline_task(
-                    self.pipecat_processors, self.transport, self.bridge
+                    self.pipecat_processors, self.transport, self.bridge, self.session_manager
                 )
                 logger.bind(session_id=self.session_id).info(
                     "Real pipecat PipelineTask created"

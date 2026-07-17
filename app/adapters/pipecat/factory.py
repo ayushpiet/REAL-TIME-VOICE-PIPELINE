@@ -21,6 +21,7 @@ class PipecatFactory:
         execution_id: str,
         transport: Optional[PipecatTransportAdapter] = None,
         fsm: Optional[Any] = None,
+        session_manager: Optional[Any] = None,
     ) -> PipecatAdapter:
         """Create and return a configured PipecatAdapter.
 
@@ -41,4 +42,5 @@ class PipecatFactory:
             execution_id=execution_id,
             transport=transport,
             fsm=fsm,
+            session_manager=session_manager,
         )
