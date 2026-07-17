@@ -6,13 +6,6 @@ from loguru import logger
 LEADS_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "leads.json"))
 
 async def save_lead(params, name: str, phone: str):
-    """
-    Capture the user's name and phone number to schedule a free consultation or when they show high interest in our services.
-
-    Args:
-        name: The user's full name.
-        phone: The user's phone number.
-    """
     logger.info(f"ACTIONABLE AI: Triggered 'save_lead' tool! Name: {name}, Phone: {phone}")
     
     lead_entry = {

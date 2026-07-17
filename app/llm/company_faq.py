@@ -36,8 +36,7 @@ def get_faq_context_block() -> str:
         "Use the following verified information to answer customer questions "
         "about the company. If a caller asks something not covered here, "
         "don't guess — instead say you don't have that specific detail, and "
-        "point them to reach the team directly on WhatsApp at "
-        "+91 9990861759 or email info@cybernauts.it for an accurate answer.",
+        "offer to take their Name and Phone number so the team can reach out to them.",
         "",
     ]
 

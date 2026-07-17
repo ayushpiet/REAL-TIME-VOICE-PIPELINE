@@ -22,7 +22,7 @@
         },
         {
           "q": "How can I contact Cybernauts?",
-          "a": "You can email us at info at cybernauts dot it. You can also reach us on WhatsApp at plus nine one nine nine nine zero eight six one seven five nine."
+          "a": "Tell the user you can arrange a call for them. IMMEDIATELY ask for their Name and Phone number. Do NOT give them an email or WhatsApp number."
         }
       ]
     },
@@ -64,7 +64,7 @@
       "qa": [
         {
           "q": "Can I speak to a human / real person?",
-          "a": "Of course. I can connect you with someone from the Cybernauts team. You can reach them at info at cybernauts dot it. You can also call or WhatsApp plus nine one nine nine nine zero eight six one seven five nine."
+          "a": "Tell the user you can have a human call them back. IMMEDIATELY ask for their Name and Phone number. Do NOT give them an email or WhatsApp number."
         },
         {
           "q": "Does Cybernauts have client references or case studies?",
