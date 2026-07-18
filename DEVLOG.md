@@ -587,6 +587,26 @@ Comprehensive stress testing, memory profiling, and end-to-end execution validat
 2. **Memory Safety**: Profiled 100 concurrent session executions (`tracemalloc`). Stable 50KB heap allocation per session with zero cyclic memory leaks.
 3. **Integration Flow**: E2E pipeline logic seamlessly traversed from Twilio WebSocket ? FSM ? Deepgram STT ? Groq LLM ? ElevenLabs TTS ? Twilio Audio Response.
 4. **Resilience**: Simulating external provider failures (e.g., missing API keys or disconnects) resulted in graceful `on_pipeline_failed` events with clean session teardowns, ensuring zero hung threads.
+---
+---
+## Milestone — Pillar 3: Groq LLM + Context Layer Integration
+**Date**: 2026-07-09
+**Status**: ✅ Complete — Implemented and Tested
+
+### Overview
+Built the foundational Groq LLM integration for the voice pipeline — the core client, conversation-context management, and system prompt used by every downstream Pillar 3 feature (FAQ knowledge base, persistent memory summaries) since.
+
+### What was built
+- `app/llm/client.py` — `GroqLLMClient`: async streaming chat-completion client using `AsyncGroq`, model `llama-3.3-70b-versatile`.
+- `app/llm/context_manager.py` — `ContextManager.get_trimmed_history()`: sliding-window history trimming that always preserves the system prompt at index 0, keeping conversation context within token limits for real-time voice latency.
+- `app/llm/prompts.py` — `VOICE_SYSTEM_PROMPT`: tuned specifically for short, natural, non-robotic voice replies (as opposed to a generic chatbot prompt).
+- `scripts/test_groq.py` — standalone live validation script (session → history → trim → stream) used to verify latency and correctness independent of the full pipeline.
+
+### Verification
+- Live-validated via `scripts/test_groq.py`: confirmed working end-to-end streaming completions with real Groq API calls, with response latency in the 160–360ms range.
+
+### Conclusion
+This became the base Groq LLM + Context layer that all later Pillar 3 work builds on — the Company FAQ Knowledge Base injects into `VOICE_SYSTEM_PROMPT`, and Persistent Memory reuses `GroqLLMClient` for summary generation.
 
 ---
 
