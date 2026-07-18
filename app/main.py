@@ -376,6 +376,9 @@ async def run_voice_session(
     execution_id = str(uuid.uuid4())
 
     # ── 7. Pipecat Adapter ──────────────────────────────────────────────
+    from app.metrics.latency import LatencyTracker
+    latency_tracker = LatencyTracker()
+    
     adapter = PipecatFactory.create_adapter(
         pipeline=pipeline,
         event_bus=event_bus,
@@ -383,7 +386,7 @@ async def run_voice_session(
         execution_id=execution_id,
         transport=transport,
         fsm=fsm,
-        session_manager=session_manager,
+        latency_tracker=latency_tracker,
     )
     logger.info("PipecatAdapter ready | execution_id={eid}", eid=execution_id)
 
@@ -424,8 +427,12 @@ async def run_voice_session(
         # Dump latency profiles
         import app.main
         for k, v in app.main.global_timers.items():
+            # Only log remaining global connection metrics
             logger.info(f"[LATENCY] {k} = {v}")
         app.main.global_timers.clear()
+        
+        # Print turn-by-turn benchmark summary
+        latency_tracker.print_summary()
 
 
 def main() -> None:

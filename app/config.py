@@ -31,12 +31,22 @@ DEEPGRAM_API_KEY: str = os.getenv("DEEPGRAM_API_KEY", "")
 
 # ── Groq (LLM) ────────────────────────────────────────────────────────
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
 # ── ElevenLabs (Text-to-Speech) ───────────────────────────────────────
 ELEVEN_LABS_API_KEY: str = os.getenv("ELEVEN_LABS_API_KEY", "")
-ELEVEN_LABS_VOICE_ID: str = os.getenv("ELEVEN_LABS_VOICE_ID", "21m00TlvDq8ikWAM")
+ELEVEN_LABS_VOICE_ID: str = os.getenv("ELEVEN_LABS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")
 ELEVENLABS_MODEL: str = os.getenv("ELEVENLABS_MODEL", "eleven_turbo_v2_5")
+
+# ── TTS Provider Selection ─────────────────────────────────────────────
+TTS_PROVIDER: str = os.getenv("TTS_PROVIDER", "elevenlabs")  # "elevenlabs" | "deepgram" | "cartesia"
+
+# ── Deepgram (also used for TTS, separate voice setting from STT) ─────
+DEEPGRAM_TTS_VOICE: str = os.getenv("DEEPGRAM_TTS_VOICE", "aura-2-asteria-en")
+
+# ── Cartesia (Text-to-Speech) ──────────────────────────────────────────
+CARTESIA_API_KEY: str = os.getenv("CARTESIA_API_KEY", "")
+CARTESIA_VOICE_ID: str = os.getenv("CARTESIA_VOICE_ID", "a0e99841-438c-4a64-b679-ae501e7d6091")
 
 # ── Bot identity ───────────────────────────────────────────────────────
 BOT_NAME: str = os.getenv("BOT_NAME", "Cybernauts Agent")

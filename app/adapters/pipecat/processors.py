@@ -63,11 +63,10 @@ def create_pipecat_processor(role: ProcessorRole, metadata: dict[str, Any]) -> A
     """
     try:
         return _create_real_processor(role, metadata)
-    except ImportError:
-        logger.debug(
-            "pipecat-ai not installed — using MockPipecatProcessor for role={role}",
-            role=role.value,
-        )
+    except ImportError as e:
+        logger.error(f"MOCK FALLBACK for role={role.value} | REASON: {e}")
+        import traceback
+        traceback.print_exc()
         return _create_mock_processor(role)
 
 
@@ -110,26 +109,75 @@ def _create_real_processor(role: ProcessorRole, metadata: dict[str, Any]) -> Any
         return llm
 
     elif role == ProcessorRole.TTS:
-        from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
-        from app.config import ELEVENLABS_MODEL
+        from app.config import TTS_PROVIDER
 
-        if not ELEVEN_LABS_API_KEY:
-            raise ValueError("ELEVEN_LABS_API_KEY is not set in your .env file.")
+        provider = metadata.get("provider", TTS_PROVIDER)
+        
+        if provider == "elevenlabs":
+            from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
+            from app.config import ELEVEN_LABS_API_KEY, ELEVEN_LABS_VOICE_ID, ELEVENLABS_MODEL
 
-        voice_id = metadata.get("voice_id", ELEVEN_LABS_VOICE_ID)
-        model_name = metadata.get("model", ELEVENLABS_MODEL)
-        tts = ElevenLabsTTSService(
-            api_key=ELEVEN_LABS_API_KEY,
-            sample_rate=16000,
-            settings=ElevenLabsTTSService.Settings(
-                voice=voice_id,
-                model=model_name,
-                stability=0.5,
-                similarity_boost=0.8,
-            ),
-        )
-        logger.info("ElevenLabsTTSService created | voice_id={v}", v=voice_id)
-        return tts
+            if not ELEVEN_LABS_API_KEY:
+                raise ValueError("ELEVEN_LABS_API_KEY is not set in your .env file.")
+
+            voice_id = metadata.get("voice_id", ELEVEN_LABS_VOICE_ID)
+            model_name = metadata.get("model", ELEVENLABS_MODEL)
+            tts = ElevenLabsTTSService(
+                api_key=ELEVEN_LABS_API_KEY,
+                sample_rate=16000,
+                settings=ElevenLabsTTSService.Settings(
+                    voice=voice_id,
+                    model=model_name,
+                    stability=0.5,
+                    similarity_boost=0.8,
+                ),
+            )
+            logger.info("ElevenLabsTTSService created | voice_id={v}", v=voice_id)
+            return tts
+
+        elif provider == "deepgram":
+            from pipecat.services.deepgram.tts import DeepgramTTSService
+            from app.config import DEEPGRAM_API_KEY, DEEPGRAM_TTS_VOICE
+
+            if not DEEPGRAM_API_KEY:
+                raise ValueError("DEEPGRAM_API_KEY is not set in your .env file.")
+
+            voice = metadata.get("voice", DEEPGRAM_TTS_VOICE)
+            tts = DeepgramTTSService(
+                api_key=DEEPGRAM_API_KEY,
+                sample_rate=16000,
+                settings=DeepgramTTSService.Settings(voice=voice),
+            )
+            logger.info("DeepgramTTSService created | voice={v}", v=voice)
+            return tts
+
+        elif provider == "chatterbox":
+            from app.adapters.pipecat.chatterbox_tts_service import ChatterboxTTSService
+
+            tts = ChatterboxTTSService(sample_rate=16000)
+            logger.info("ChatterboxTTSService created (local CPU)")
+            return tts
+
+        elif provider == "cartesia":    
+            from pipecat.services.cartesia.tts import CartesiaTTSService
+            from app.config import CARTESIA_API_KEY, CARTESIA_VOICE_ID
+
+            if not CARTESIA_API_KEY:
+                raise ValueError("CARTESIA_API_KEY is not set in your .env file.")
+
+            voice_id = metadata.get("voice_id", CARTESIA_VOICE_ID)
+            tts = CartesiaTTSService(
+                api_key=CARTESIA_API_KEY,
+                voice_id=voice_id,
+                sample_rate=16000,
+            )
+            logger.info("CartesiaTTSService created | voice_id={v}", v=voice_id)
+            return tts
+
+        else:
+            raise ValueError(f"Unknown TTS_PROVIDER: {provider}")
+
+
 
     elif role in (ProcessorRole.TRANSPORT_INPUT, ProcessorRole.TRANSPORT_OUTPUT):
         # Transport processors are injected via PipecatTransportAdapter,

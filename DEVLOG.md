@@ -587,6 +587,26 @@ Comprehensive stress testing, memory profiling, and end-to-end execution validat
 2. **Memory Safety**: Profiled 100 concurrent session executions (`tracemalloc`). Stable 50KB heap allocation per session with zero cyclic memory leaks.
 3. **Integration Flow**: E2E pipeline logic seamlessly traversed from Twilio WebSocket ? FSM ? Deepgram STT ? Groq LLM ? ElevenLabs TTS ? Twilio Audio Response.
 4. **Resilience**: Simulating external provider failures (e.g., missing API keys or disconnects) resulted in graceful `on_pipeline_failed` events with clean session teardowns, ensuring zero hung threads.
+---
+---
+## Milestone — Pillar 3: Groq LLM + Context Layer Integration
+**Date**: 2026-07-09
+**Status**: ✅ Complete — Implemented and Tested
+
+### Overview
+Built the foundational Groq LLM integration for the voice pipeline — the core client, conversation-context management, and system prompt used by every downstream Pillar 3 feature (FAQ knowledge base, persistent memory summaries) since.
+
+### What was built
+- `app/llm/client.py` — `GroqLLMClient`: async streaming chat-completion client using `AsyncGroq`, model `llama-3.3-70b-versatile`.
+- `app/llm/context_manager.py` — `ContextManager.get_trimmed_history()`: sliding-window history trimming that always preserves the system prompt at index 0, keeping conversation context within token limits for real-time voice latency.
+- `app/llm/prompts.py` — `VOICE_SYSTEM_PROMPT`: tuned specifically for short, natural, non-robotic voice replies (as opposed to a generic chatbot prompt).
+- `scripts/test_groq.py` — standalone live validation script (session → history → trim → stream) used to verify latency and correctness independent of the full pipeline.
+
+### Verification
+- Live-validated via `scripts/test_groq.py`: confirmed working end-to-end streaming completions with real Groq API calls, with response latency in the 160–360ms range.
+
+### Conclusion
+This became the base Groq LLM + Context layer that all later Pillar 3 work builds on — the Company FAQ Knowledge Base injects into `VOICE_SYSTEM_PROMPT`, and Persistent Memory reuses `GroqLLMClient` for summary generation.
 
 ---
 
@@ -676,6 +696,28 @@ Validate that a returning caller is correctly identified using the stored phone 
 ### Lessons Learned
 - The `get_or_create_client` pattern works efficiently and prevents duplicates when correctly combined with database unique constraints and indexed lookups.
 - Utilizing `AsyncSession` context managers ensures clean database connections and transaction management even in testing scenarios.
+
+---
+
+---
+## Milestone — Pillar 3: Real Groq-Based Summary Generation for Persistent Memory
+**Date**: 2026-07-16
+**Status**: ✅ Complete — Implemented and Tested
+
+### Overview
+Replaced the placeholder/mock summary generation in `on_session_closed` (which simply truncated the raw transcript into a fake "summary") with a real Groq LLM call, as agreed in the persistent-memory architecture discussion.
+
+### What was built
+- The summary logic now combines the caller's **previous summary** (loaded from `caller_summaries`/`ConversationSummary` at call start) with the **current call's transcript**, and asks Groq to produce ONE updated, concise summary (3-5 sentences) — overwriting the old one.
+- Added a fallback: if the Groq call fails for any reason, the previous summary is kept as-is rather than losing it or crashing.
+- Fixed a race condition where `event_bus.stop()` was cancelling the background event worker immediately after publishing `SessionClosed`, before the event could actually be processed — added `await event_bus._queue.join()` before stopping, so the summary-persistence subscriber reliably runs before shutdown.
+
+### Verification
+- Verified the Groq prompt construction and summary generation logic via a standalone script (`test_summary_write.py`), confirming the LLM correctly combines previous + new context.
+- Verified DB read/write for client creation and summary save/retrieve via manual scripts, independent of the live call pipeline.
+
+### Conclusion
+This closes the gap between the mock summary generation and the real, production-ready implementation. Combined with the later conversation-history-tracking fix, this completes the core persistent memory feature end-to-end.
 
 ---
 
