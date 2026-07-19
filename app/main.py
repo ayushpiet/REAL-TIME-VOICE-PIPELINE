@@ -434,13 +434,15 @@ async def run_voice_session(
         # Print turn-by-turn benchmark summary
         latency_tracker.print_summary()
 
+from fastapi.staticfiles import StaticFiles
+app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
 
 def main() -> None:
     """Synchronous entry point."""
     import uvicorn
-    logger.info(f"TRANSPORT_MODE is set to '{TRANSPORT_MODE}'. Starting FastAPI server on port 5000...")
+    logger.info(f"TRANSPORT_MODE is set to '{TRANSPORT_MODE}'. Starting FastAPI server on port 8000...")
     # Always run the FastAPI server so the frontend can hit /api/livekit/join and /ws/frontend
-    uvicorn.run("app.main:app", host="0.0.0.0", port=5000, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
 
 
 if __name__ == "__main__":

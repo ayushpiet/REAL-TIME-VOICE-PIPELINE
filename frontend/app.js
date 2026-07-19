@@ -134,8 +134,10 @@ class VoicePipelineClient {
         this.ui = ui;
         this.ws = null;
         this.room = null;
-        this.API_BASE = 'http://localhost:5000/api/livekit'; // Backend API
-        this.WS_URL = 'ws://localhost:5000/ws/frontend'; // Backend WS
+        this.API_BASE = '/api/livekit'; // Backend API (Relative path)
+        
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        this.WS_URL = `${wsProtocol}//${window.location.host}/ws/frontend`; // Backend WS (Dynamic)
         
         this.bindEvents();
         this.checkConfig();
